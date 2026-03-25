@@ -1,0 +1,178 @@
+{
+  "id": "hermes-agent-onboarding",
+  "title": "Hermes Agent Architecture Tour",
+  "description": "A guided walkthrough of the Hermes Agent codebase — the self-improving AI agent by Nous Research. Covers the core agent loop, CLI, tools system, skills, messaging gateway, and research infrastructure.",
+  "version": "1.0.0",
+  "steps": [
+    {
+      "id": "overview",
+      "title": "Welcome to Hermes Agent",
+      "description": "Hermes Agent is a self-improving AI agent harness with tool-calling, an interactive CLI, messaging integrations, scheduled tasks, and a closed learning loop. The codebase is organized around a few key entry points and module directories. Let's walk through each layer.",
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "core-agent-loop",
+      "title": "The Core Agent Loop",
+      "description": "The highlighted files form the heart of the system. The main agent class drives the conversation loop: receiving user input, building prompts, calling the LLM, parsing tool calls, executing tools, and feeding results back. Supporting modules provide tool orchestration, persistent session state, and shared constants.",
+      "focusDirectory": "",
+      "highlightLayers": [
+        {
+          "id": "core-files",
+          "name": "Core Agent Files",
+          "color": "#ef4444",
+          "items": [
+            { "path": "run_agent.py", "type": "file" },
+            { "path": "model_tools.py", "type": "file" },
+            { "path": "hermes_state.py", "type": "file" },
+            { "path": "hermes_constants.py", "type": "file" }
+          ],
+          "opacity": 0.8,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "agent-internals",
+      "title": "Agent Internals",
+      "description": "These modules are extracted from the core loop to keep concerns separate. The prompt pipeline assembles the system prompt from identity, skills index, and context files. Other modules handle auto-compression when context gets too long, model context-length tracking and token estimation, prompt caching, spinner and tool-preview formatting, and saving conversation trajectories for training.",
+      "focusDirectory": "agent",
+      "highlightLayers": [
+        {
+          "id": "prompt-pipeline",
+          "name": "Prompt Pipeline",
+          "color": "#f59e0b",
+          "items": [
+            { "path": "agent/prompt_builder.py", "type": "file" },
+            { "path": "agent/context_compressor.py", "type": "file" },
+            { "path": "agent/model_metadata.py", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "cli-interface",
+      "title": "Interactive CLI",
+      "description": "The interactive CLI orchestrator supports multiline editing, streaming, and slash commands. The highlighted modules handle command dispatch, the interactive setup wizard, slash-command definitions with autocomplete, interactive prompts for clarification and approval, and diagnostics.",
+      "focusDirectory": "hermes_cli",
+      "highlightLayers": [
+        {
+          "id": "cli-entry",
+          "name": "CLI Entry Points",
+          "color": "#3b82f6",
+          "items": [
+            { "path": "hermes_cli/main.py", "type": "file" },
+            { "path": "hermes_cli/commands.py", "type": "file" },
+            { "path": "hermes_cli/setup.py", "type": "file" },
+            { "path": "hermes_cli/callbacks.py", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "tools-system",
+      "title": "Tools & Environments",
+      "description": "This directory houses over thirty tool implementations. The central registry defines schemas, handlers, and dispatch. A dedicated approval module handles dangerous-command detection with per-session approval. Terminal execution is orchestrated across six backends — local, Docker, SSH, Daytona, Singularity, and Modal — each with its own adapter. Root-level configuration files control which tools are available in each session.",
+      "focusDirectory": "tools",
+      "highlightLayers": [
+        {
+          "id": "tool-core",
+          "name": "Tool Infrastructure",
+          "color": "#10b981",
+          "items": [
+            { "path": "tools/registry.py", "type": "file" },
+            { "path": "tools/approval.py", "type": "file" },
+            { "path": "tools/terminal_tool.py", "type": "file" },
+            { "path": "tools/environments", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        },
+        {
+          "id": "tool-capabilities",
+          "name": "Key Capabilities",
+          "color": "#8b5cf6",
+          "items": [
+            { "path": "tools/memory_tool.py", "type": "file" },
+            { "path": "tools/skill_manager_tool.py", "type": "file" },
+            { "path": "tools/web_tools.py", "type": "file" },
+            { "path": "tools/code_execution_tool.py", "type": "file" },
+            { "path": "tools/delegate_tool.py", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "skills-system",
+      "title": "Skills & Learning Loop",
+      "description": "Bundled skill sources are organized by category — from software development and research to creative, media, and smart-home. The agent autonomously creates new skills after complex tasks and improves them during use. Skills follow the agentskills.io open standard, and dedicated tools power the creation and management loop.",
+      "focusDirectory": "skills",
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "messaging-gateway",
+      "title": "Messaging Gateway",
+      "description": "Hermes can communicate across Telegram, Discord, Slack, WhatsApp, and Home Assistant — all from a single process. The highlighted modules handle gateway startup, cross-platform conversation continuity, DM authentication, and platform-specific adapters.",
+      "focusDirectory": "gateway",
+      "highlightLayers": [
+        {
+          "id": "gateway-core",
+          "name": "Gateway Core",
+          "color": "#06b6d4",
+          "items": [
+            { "path": "gateway/run.py", "type": "file" },
+            { "path": "gateway/session.py", "type": "file" },
+            { "path": "gateway/pairing.py", "type": "file" },
+            { "path": "gateway/platforms", "type": "directory" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "research-infra",
+      "title": "Research & Training Infrastructure",
+      "description": "Hermes Agent is research-ready. The infrastructure supports parallel batch trajectory generation, trajectory compression for training the next generation of tool-calling models, RL training environments with Atropos integration, and a dedicated CLI for reinforcement learning workflows.",
+      "focusDirectory": "environments",
+      "highlightLayers": [
+        {
+          "id": "research-files",
+          "name": "Research Files",
+          "color": "#ec4899",
+          "items": [
+            { "path": "environments/agent_loop.py", "type": "file" },
+            { "path": "environments/hermes_base_env.py", "type": "file" }
+          ],
+          "opacity": 0.7,
+          "renderStrategy": "border"
+        }
+      ],
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "testing",
+      "title": "Test Suite",
+      "description": "The test suite mirrors the source structure with unit and integration tests covering the agent core, CLI, gateway, tools, and honcho integration. Shared fixtures keep tests consistent.",
+      "focusDirectory": "tests",
+      "colorMode": "fileTypes"
+    },
+    {
+      "id": "full-picture",
+      "title": "The Full Picture",
+      "description": "That's the Hermes Agent architecture: a core agent loop powered by a rich tool registry, an interactive CLI, a multi-platform messaging gateway, a self-improving skills system, and research-grade training infrastructure. Start exploring by reading the development guide or the contributor setup docs.",
+      "focusDirectory": "",
+      "colorMode": "fileTypes"
+    }
+  ]
+}
