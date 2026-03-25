@@ -55,7 +55,7 @@
     },
     {
       "id": "cli-interface",
-      "title": "Interactive CLI",
+      "title": "Interactive CLI.",
       "description": "The interactive CLI orchestrator supports multiline editing, streaming, and slash commands. The highlighted modules handle command dispatch, the interactive setup wizard, slash-command definitions with autocomplete, interactive prompts for clarification and approval, and diagnostics.",
       "focusDirectory": "hermes_cli",
       "highlightLayers": [
@@ -142,7 +142,7 @@
     },
     {
       "id": "research-infra",
-      "title": "Research & Training Infrastructure",
+      "title": "Research & Training Infrastructure.",
       "description": "Hermes Agent is research-ready. The infrastructure supports parallel batch trajectory generation, trajectory compression for training the next generation of tool-calling models, RL training environments with Atropos integration, and a dedicated CLI for reinforcement learning workflows.",
       "focusDirectory": "environments",
       "highlightLayers": [
