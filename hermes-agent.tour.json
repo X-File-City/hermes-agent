@@ -13,8 +13,8 @@
     {
       "id": "core-agent-loop",
       "title": "The Core Agent Loop",
-      "description": "The highlighted files form the heart of the system. The main agent class drives the conversation loop: receiving user input, building prompts, calling the LLM, parsing tool calls, executing tools, and feeding results back. Supporting modules provide tool orchestration, persistent session state, and shared constants.",
-      "focusDirectory": "",
+      "description": "The highlighted files form the heart of the system. The main agent drives the conversation loop: receiving user input, building prompts, calling the LLM, parsing tool calls, executing tools, and feeding results back. Supporting modules provide tool orchestration, persistent session state, and shared constants.",
+      "focusDirectory": "agent",
       "highlightLayers": [
         {
           "id": "core-files",
@@ -78,7 +78,7 @@
     {
       "id": "tools-system",
       "title": "Tools & Environments",
-      "description": "This directory houses over thirty tool implementations. The central registry defines schemas, handlers, and dispatch. A dedicated approval module handles dangerous-command detection with per-session approval. Terminal execution is orchestrated across six backends — local, Docker, SSH, Daytona, Singularity, and Modal — each with its own adapter. Root-level configuration files control which tools are available in each session.",
+      "description": "Hermes ships with over fifty tool implementations. The central registry defines schemas, handlers, and dispatch. A dedicated approval module handles dangerous-command detection with per-session approval. Terminal execution is orchestrated across seven backends — local, Docker, SSH, Daytona, Singularity, Modal, and Modal-managed — each with its own adapter. Top-level configuration controls which tools are available in each session.",
       "focusDirectory": "tools",
       "highlightLayers": [
         {
@@ -114,14 +114,14 @@
     {
       "id": "skills-system",
       "title": "Skills & Learning Loop",
-      "description": "Bundled skill sources are organized by category — from software development and research to creative, media, and smart-home. The agent autonomously creates new skills after complex tasks and improves them during use. Skills follow the agentskills.io open standard, and dedicated tools power the creation and management loop.",
+      "description": "Bundled skill sources are organized by category — from software development and research to creative, media, and smart-home. The agent autonomously creates new skills after complex tasks and improves them during use. Skills follow the open Agent Skills standard, and dedicated tools power the creation and management loop.",
       "focusDirectory": "skills",
       "colorMode": "fileTypes"
     },
     {
       "id": "messaging-gateway",
       "title": "Messaging Gateway",
-      "description": "Hermes can communicate across Telegram, Discord, Slack, WhatsApp, and Home Assistant — all from a single process. The highlighted modules handle gateway startup, cross-platform conversation continuity, DM authentication, and platform-specific adapters.",
+      "description": "Hermes can communicate across seventeen platforms from a single process — including Telegram, Discord, Slack, WhatsApp, Signal, Matrix, Home Assistant, and enterprise chat like Feishu and WeCom. The highlighted modules handle gateway startup, cross-platform conversation continuity, DM authentication, and platform-specific adapters.",
       "focusDirectory": "gateway",
       "highlightLayers": [
         {
@@ -163,7 +163,7 @@
     {
       "id": "testing",
       "title": "Test Suite",
-      "description": "The test suite mirrors the source structure with unit and integration tests covering the agent core, CLI, gateway, tools, and honcho integration. Shared fixtures keep tests consistent.",
+      "description": "The test suite mirrors the source structure with unit and integration tests covering the agent core, CLI, gateway, tools, and Honcho integration. Shared fixtures keep tests consistent.",
       "focusDirectory": "tests",
       "colorMode": "fileTypes"
     },
