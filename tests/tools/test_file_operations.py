@@ -259,6 +259,70 @@ class TestShellFileOpsHelpers:
         assert ops.cwd == "/"
 
 
+class TestSearchPathValidation:
+    """Test that search() returns an error for non-existent paths."""
+
+    def test_search_nonexistent_path_returns_error(self, mock_env):
+        """search() should return an error when the path doesn't exist."""
+        def side_effect(command, **kwargs):
+            if "test -e" in command:
+                return {"output": "not_found", "returncode": 1}
+            if "command -v" in command:
+                return {"output": "yes", "returncode": 0}
+            return {"output": "", "returncode": 0}
+        mock_env.execute.side_effect = side_effect
+        ops = ShellFileOperations(mock_env)
+        result = ops.search("pattern", path="/nonexistent/path")
+        assert result.error is not None
+        assert "not found" in result.error.lower() or "Path not found" in result.error
+
+    def test_search_nonexistent_path_files_mode(self, mock_env):
+        """search(target='files') should also return error for bad paths."""
+        def side_effect(command, **kwargs):
+            if "test -e" in command:
+                return {"output": "not_found", "returncode": 1}
+            if "command -v" in command:
+                return {"output": "yes", "returncode": 0}
+            return {"output": "", "returncode": 0}
+        mock_env.execute.side_effect = side_effect
+        ops = ShellFileOperations(mock_env)
+        result = ops.search("*.py", path="/nonexistent/path", target="files")
+        assert result.error is not None
+        assert "not found" in result.error.lower() or "Path not found" in result.error
+
+    def test_search_existing_path_proceeds(self, mock_env):
+        """search() should proceed normally when the path exists."""
+        def side_effect(command, **kwargs):
+            if "test -e" in command:
+                return {"output": "exists", "returncode": 0}
+            if "command -v" in command:
+                return {"output": "yes", "returncode": 0}
+            # rg returns exit 1 (no matches) with empty output
+            return {"output": "", "returncode": 1}
+        mock_env.execute.side_effect = side_effect
+        ops = ShellFileOperations(mock_env)
+        result = ops.search("pattern", path="/existing/path")
+        assert result.error is None
+        assert result.total_count == 0  # No matches but no error
+
+    def test_search_rg_error_exit_code(self, mock_env):
+        """search() should report error when rg returns exit code 2."""
+        call_count = {"n": 0}
+        def side_effect(command, **kwargs):
+            call_count["n"] += 1
+            if "test -e" in command:
+                return {"output": "exists", "returncode": 0}
+            if "command -v" in command:
+                return {"output": "yes", "returncode": 0}
+            # rg returns exit 2 (error) with empty output
+            return {"output": "", "returncode": 2}
+        mock_env.execute.side_effect = side_effect
+        ops = ShellFileOperations(mock_env)
+        result = ops.search("pattern", path="/some/path")
+        assert result.error is not None
+        assert "search failed" in result.error.lower() or "Search error" in result.error
+
+
 class TestShellFileOpsWriteDenied:
     def test_write_file_denied_path(self, file_ops):
         result = file_ops.write_file("~/.ssh/authorized_keys", "evil key")
@@ -269,3 +333,25 @@ class TestShellFileOpsWriteDenied:
         result = file_ops.patch_replace("~/.ssh/authorized_keys", "old", "new")
         assert result.error is not None
         assert "denied" in result.error.lower()
+
+    def test_delete_file_denied_path(self, file_ops):
+        result = file_ops.delete_file("~/.ssh/authorized_keys")
+        assert result.error is not None
+        assert "denied" in result.error.lower()
+
+    def test_move_file_src_denied(self, file_ops):
+        result = file_ops.move_file("~/.ssh/id_rsa", "/tmp/dest.txt")
+        assert result.error is not None
+        assert "denied" in result.error.lower()
+
+    def test_move_file_dst_denied(self, file_ops):
+        result = file_ops.move_file("/tmp/src.txt", "~/.aws/credentials")
+        assert result.error is not None
+        assert "denied" in result.error.lower()
+
+    def test_move_file_failure_path(self, mock_env):
+        mock_env.execute.return_value = {"output": "No such file or directory", "returncode": 1}
+        ops = ShellFileOperations(mock_env)
+        result = ops.move_file("/tmp/nonexistent.txt", "/tmp/dest.txt")
+        assert result.error is not None
+        assert "Failed to move" in result.error

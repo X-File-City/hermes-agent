@@ -62,6 +62,11 @@ from atroposlib.type_definitions import Item
 
 from environments.agent_loop import AgentResult, HermesAgentLoop
 from environments.tool_context import ToolContext
+from tools.budget_config import (
+    DEFAULT_RESULT_SIZE_CHARS,
+    DEFAULT_TURN_BUDGET_CHARS,
+    DEFAULT_PREVIEW_SIZE_CHARS,
+)
 
 # Import hermes-agent toolset infrastructure
 from model_tools import get_tool_definitions
@@ -160,6 +165,32 @@ class HermesAgentEnvConfig(BaseEnvConfig):
         "Options: hermes, mistral, llama3_json, qwen, deepseek_v3, etc.",
     )
 
+    # --- Tool result budget ---
+    # Defaults imported from tools.budget_config (single source of truth).
+    default_result_size_chars: int = Field(
+        default=DEFAULT_RESULT_SIZE_CHARS,
+        description="Default per-tool threshold (chars) for persisting large results "
+        "to sandbox. Results exceeding this are written to /tmp/hermes-results/ "
+        "and replaced with a preview. Per-tool registry values take precedence "
+        "unless overridden via tool_result_overrides.",
+    )
+    turn_budget_chars: int = Field(
+        default=DEFAULT_TURN_BUDGET_CHARS,
+        description="Aggregate char budget per assistant turn. If all tool results "
+        "in a single turn exceed this, the largest are persisted to disk first.",
+    )
+    preview_size_chars: int = Field(
+        default=DEFAULT_PREVIEW_SIZE_CHARS,
+        description="Size of the inline preview shown after a tool result is persisted.",
+    )
+    tool_result_overrides: Optional[Dict[str, int]] = Field(
+        default=None,
+        description="Per-tool threshold overrides (chars). Keys are tool names, "
+        "values are char thresholds. Overrides both the default and registry "
+        "per-tool values. Example: {'terminal': 10000, 'search_files': 5000}. "
+        "Note: read_file is pinned to infinity and cannot be overridden.",
+    )
+
     # --- Provider-specific parameters ---
     # Passed as extra_body to the OpenAI client's chat.completions.create() call.
     # Useful for OpenRouter provider preferences, transforms, route settings, etc.
@@ -175,6 +206,16 @@ class HermesAgentEnvConfig(BaseEnvConfig):
         "chat.completions.create(). Used for OpenRouter provider preferences, "
         "transforms, and other provider-specific settings.",
     )
+
+    def build_budget_config(self):
+        """Build a BudgetConfig from env config fields."""
+        from tools.budget_config import BudgetConfig
+        return BudgetConfig(
+            default_result_size=self.default_result_size_chars,
+            turn_budget=self.turn_budget_chars,
+            preview_size=self.preview_size_chars,
+            tool_overrides=dict(self.tool_result_overrides) if self.tool_result_overrides else {},
+        )
 
 
 class HermesAgentBaseEnv(BaseEnv):
@@ -228,6 +269,12 @@ class HermesAgentBaseEnv(BaseEnv):
         # (e.g., 89 parallel TB2 eval tasks each need a thread for tool calls).
         from environments.agent_loop import resize_tool_pool
         resize_tool_pool(config.tool_pool_size)
+
+        # Set tool_parser on the ServerManager so ManagedServer uses it
+        # for bidirectional tool call translation (raw text ↔ OpenAI tool_calls).
+        if hasattr(self.server, 'tool_parser'):
+            self.server.tool_parser = config.tool_call_parser
+            print(f"🔧 Tool parser: {config.tool_call_parser}")
 
         # Current group's resolved tools (set in collect_trajectories)
         self._current_group_tools: Optional[Tuple[List[Dict], Set[str]]] = None
@@ -466,22 +513,14 @@ class HermesAgentBaseEnv(BaseEnv):
         # Run the agent loop
         result: AgentResult
         if self._use_managed_server():
-            # Phase 2: ManagedServer with parser -- exact tokens + logprobs
-            # Load the tool call parser from registry based on config
-            from environments.tool_call_parsers import get_parser
-            try:
-                tc_parser = get_parser(self.config.tool_call_parser)
-            except KeyError:
-                logger.warning(
-                    "Tool call parser '%s' not found, falling back to 'hermes'",
-                    self.config.tool_call_parser,
-                )
-                tc_parser = get_parser("hermes")
-
+            # Phase 2: ManagedServer with ToolCallTranslator -- exact tokens + logprobs
+            # tool_parser is set on ServerManager in __init__ and passed through
+            # to ManagedServer, which uses ToolCallTranslator for bidirectional
+            # translation between raw text and OpenAI tool_calls.
             try:
                 async with self.server.managed_server(
                     tokenizer=self.tokenizer,
-                    tool_call_parser=tc_parser,
+                    preserve_think_blocks=bool(self.config.thinking_mode),
                 ) as managed:
                     agent = HermesAgentLoop(
                         server=managed,
@@ -492,6 +531,7 @@ class HermesAgentBaseEnv(BaseEnv):
                         temperature=self.config.agent_temperature,
                         max_tokens=self.config.max_token_length,
                         extra_body=self.config.extra_body,
+                        budget_config=self.config.build_budget_config(),
                     )
                     result = await agent.run(messages)
             except NotImplementedError:
@@ -509,6 +549,7 @@ class HermesAgentBaseEnv(BaseEnv):
                     temperature=self.config.agent_temperature,
                     max_tokens=self.config.max_token_length,
                     extra_body=self.config.extra_body,
+                    budget_config=self.config.build_budget_config(),
                 )
                 result = await agent.run(messages)
         else:
@@ -522,6 +563,7 @@ class HermesAgentBaseEnv(BaseEnv):
                 temperature=self.config.agent_temperature,
                 max_tokens=self.config.max_token_length,
                 extra_body=self.config.extra_body,
+                budget_config=self.config.build_budget_config(),
             )
             result = await agent.run(messages)
 

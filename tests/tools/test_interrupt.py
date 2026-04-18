@@ -28,9 +28,12 @@ class TestInterruptModule:
         assert not is_interrupted()
 
     def test_thread_safety(self):
-        """Set from one thread, check from another."""
-        from tools.interrupt import set_interrupt, is_interrupted
+        """Set from one thread targeting another thread's ident."""
+        from tools.interrupt import set_interrupt, is_interrupted, _interrupted_threads, _lock
         set_interrupt(False)
+        # Clear any stale thread idents left by prior tests in this worker.
+        with _lock:
+            _interrupted_threads.clear()
 
         seen = {"value": False}
 
@@ -45,11 +48,12 @@ class TestInterruptModule:
         time.sleep(0.05)
         assert not seen["value"]
 
-        set_interrupt(True)
+        # Target the checker thread's ident so it sees the interrupt
+        set_interrupt(True, thread_id=t.ident)
         t.join(timeout=1)
         assert seen["value"]
 
-        set_interrupt(False)
+        set_interrupt(False, thread_id=t.ident)
 
 
 # ---------------------------------------------------------------------------
@@ -88,11 +92,14 @@ class TestPreToolCheck:
         agent = MagicMock()
         agent._interrupt_requested = True
         agent.log_prefix = ""
-        agent._log_msg_to_db = MagicMock()
+        agent._persist_session = MagicMock()
 
         # Import and call the method
+        import types
         from run_agent import AIAgent
-        # Bind the real method to our mock
+        # Bind the real methods to our mock so dispatch works correctly
+        agent._execute_tool_calls_sequential = types.MethodType(AIAgent._execute_tool_calls_sequential, agent)
+        agent._execute_tool_calls_concurrent = types.MethodType(AIAgent._execute_tool_calls_concurrent, agent)
         AIAgent._execute_tool_calls(agent, assistant_msg, messages, "default")
 
         # All 3 should be skipped
@@ -186,10 +193,10 @@ class TestSIGKILLEscalation:
         t.start()
 
         time.sleep(0.5)
-        set_interrupt(True)
+        set_interrupt(True, thread_id=t.ident)
 
         t.join(timeout=5)
-        set_interrupt(False)
+        set_interrupt(False, thread_id=t.ident)
 
         assert result_holder["value"] is not None
         assert result_holder["value"]["returncode"] == 130

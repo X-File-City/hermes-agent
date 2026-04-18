@@ -5,10 +5,10 @@ handling without requiring a running terminal environment.
 """
 
 import json
+import logging
 from unittest.mock import MagicMock, patch
 
 from tools.file_tools import (
-    FILE_TOOLS,
     READ_FILE_SCHEMA,
     WRITE_FILE_SCHEMA,
     PATCH_SCHEMA,
@@ -16,28 +16,12 @@ from tools.file_tools import (
 )
 
 
-class TestFileToolsList:
-    def test_has_expected_entries(self):
-        names = {t["name"] for t in FILE_TOOLS}
-        assert names == {"read_file", "write_file", "patch", "search_files"}
-
-    def test_each_entry_has_callable_function(self):
-        for tool in FILE_TOOLS:
-            assert callable(tool["function"]), f"{tool['name']} missing callable"
-
-    def test_schemas_have_required_fields(self):
-        """All schemas must have name, description, and parameters with properties."""
-        for schema in [READ_FILE_SCHEMA, WRITE_FILE_SCHEMA, PATCH_SCHEMA, SEARCH_FILES_SCHEMA]:
-            assert "name" in schema
-            assert "description" in schema
-            assert "properties" in schema["parameters"]
-
-
 class TestReadFileHandler:
     @patch("tools.file_tools._get_file_ops")
     def test_returns_file_content(self, mock_get):
         mock_ops = MagicMock()
         result_obj = MagicMock()
+        result_obj.content = "line1\nline2"
         result_obj.to_dict.return_value = {"content": "line1\nline2", "total_lines": 2}
         mock_ops.read_file.return_value = result_obj
         mock_get.return_value = mock_ops
@@ -52,6 +36,7 @@ class TestReadFileHandler:
     def test_custom_offset_and_limit(self, mock_get):
         mock_ops = MagicMock()
         result_obj = MagicMock()
+        result_obj.content = "line10"
         result_obj.to_dict.return_value = {"content": "line10", "total_lines": 50}
         mock_ops.read_file.return_value = result_obj
         mock_get.return_value = mock_ops
@@ -85,13 +70,26 @@ class TestWriteFileHandler:
         mock_ops.write_file.assert_called_once_with("/tmp/out.txt", "hello world!\n")
 
     @patch("tools.file_tools._get_file_ops")
-    def test_exception_returns_error_json(self, mock_get):
+    def test_permission_error_returns_error_json_without_error_log(self, mock_get, caplog):
         mock_get.side_effect = PermissionError("read-only filesystem")
 
         from tools.file_tools import write_file_tool
-        result = json.loads(write_file_tool("/tmp/out.txt", "data"))
+        with caplog.at_level(logging.DEBUG, logger="tools.file_tools"):
+            result = json.loads(write_file_tool("/tmp/out.txt", "data"))
         assert "error" in result
         assert "read-only" in result["error"]
+        assert any("write_file expected denial" in r.getMessage() for r in caplog.records)
+        assert not any(r.levelno >= logging.ERROR for r in caplog.records)
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_unexpected_exception_still_logs_error(self, mock_get, caplog):
+        mock_get.side_effect = RuntimeError("boom")
+
+        from tools.file_tools import write_file_tool
+        with caplog.at_level(logging.ERROR, logger="tools.file_tools"):
+            result = json.loads(write_file_tool("/tmp/out.txt", "data"))
+        assert result["error"] == "boom"
+        assert any("write_file error" in r.getMessage() for r in caplog.records)
 
 
 class TestPatchHandler:
@@ -200,3 +198,99 @@ class TestSearchHandler:
         from tools.file_tools import search_tool
         result = json.loads(search_tool(pattern="x"))
         assert "error" in result
+
+
+# ---------------------------------------------------------------------------
+# Tool result hint tests (#722)
+# ---------------------------------------------------------------------------
+
+class TestPatchHints:
+    """Patch tool should hint when old_string is not found."""
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_no_match_includes_hint(self, mock_get):
+        mock_ops = MagicMock()
+        result_obj = MagicMock()
+        result_obj.to_dict.return_value = {
+            "error": "Could not find match for old_string in foo.py"
+        }
+        mock_ops.patch_replace.return_value = result_obj
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import patch_tool
+        raw = patch_tool(mode="replace", path="foo.py", old_string="x", new_string="y")
+        assert "[Hint:" in raw
+        assert "read_file" in raw
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_success_no_hint(self, mock_get):
+        mock_ops = MagicMock()
+        result_obj = MagicMock()
+        result_obj.to_dict.return_value = {"success": True, "diff": "--- a\n+++ b"}
+        mock_ops.patch_replace.return_value = result_obj
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import patch_tool
+        raw = patch_tool(mode="replace", path="foo.py", old_string="x", new_string="y")
+        assert "[Hint:" not in raw
+
+
+class TestSearchHints:
+    """Search tool should hint when results are truncated."""
+
+    def setup_method(self):
+        """Clear read/search tracker between tests to avoid cross-test state."""
+        from tools.file_tools import _read_tracker
+        _read_tracker.clear()
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_truncated_results_hint(self, mock_get):
+        mock_ops = MagicMock()
+        result_obj = MagicMock()
+        result_obj.to_dict.return_value = {
+            "total_count": 100,
+            "matches": [{"path": "a.py", "line": 1, "content": "x"}] * 50,
+            "truncated": True,
+        }
+        mock_ops.search.return_value = result_obj
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import search_tool
+        raw = search_tool(pattern="foo", offset=0, limit=50)
+        assert "[Hint:" in raw
+        assert "offset=50" in raw
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_non_truncated_no_hint(self, mock_get):
+        mock_ops = MagicMock()
+        result_obj = MagicMock()
+        result_obj.to_dict.return_value = {
+            "total_count": 3,
+            "matches": [{"path": "a.py", "line": 1, "content": "x"}] * 3,
+        }
+        mock_ops.search.return_value = result_obj
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import search_tool
+        raw = search_tool(pattern="foo")
+        assert "[Hint:" not in raw
+
+    @patch("tools.file_tools._get_file_ops")
+    def test_truncated_hint_with_nonzero_offset(self, mock_get):
+        mock_ops = MagicMock()
+        result_obj = MagicMock()
+        result_obj.to_dict.return_value = {
+            "total_count": 150,
+            "matches": [{"path": "a.py", "line": 1, "content": "x"}] * 50,
+            "truncated": True,
+        }
+        mock_ops.search.return_value = result_obj
+        mock_get.return_value = mock_ops
+
+        from tools.file_tools import search_tool
+        raw = search_tool(pattern="foo", offset=50, limit=50)
+        assert "[Hint:" in raw
+        assert "offset=100" in raw
+
+
+

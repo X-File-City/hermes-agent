@@ -24,6 +24,18 @@ class TestWriteAndRead:
         items[0]["content"] = "MUTATED"
         assert store.read()[0]["content"] == "Task"
 
+    def test_write_deduplicates_duplicate_ids(self):
+        store = TodoStore()
+        result = store.write([
+            {"id": "1", "content": "First version", "status": "pending"},
+            {"id": "2", "content": "Other task", "status": "pending"},
+            {"id": "1", "content": "Latest version", "status": "in_progress"},
+        ])
+        assert result == [
+            {"id": "2", "content": "Other task", "status": "pending"},
+            {"id": "1", "content": "Latest version", "status": "in_progress"},
+        ]
+
 
 class TestHasItems:
     def test_empty_store(self):
@@ -46,11 +58,17 @@ class TestFormatForInjection:
         store.write([
             {"id": "1", "content": "Do thing", "status": "completed"},
             {"id": "2", "content": "Next", "status": "pending"},
+            {"id": "3", "content": "Working", "status": "in_progress"},
         ])
         text = store.format_for_injection()
-        assert "[x]" in text
+        # Completed items are filtered out of injection
+        assert "[x]" not in text
+        assert "Do thing" not in text
+        # Active items are included
         assert "[ ]" in text
-        assert "Do thing" in text
+        assert "[>]" in text
+        assert "Next" in text
+        assert "Working" in text
         assert "context compression" in text.lower()
 
 

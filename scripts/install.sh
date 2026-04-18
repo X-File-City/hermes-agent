@@ -2,8 +2,8 @@
 # ============================================================================
 # Hermes Agent Installer
 # ============================================================================
-# Installation script for Linux and macOS.
-# Uses uv for fast Python provisioning and package management.
+# Installation script for Linux, macOS, and Android/Termux.
+# Uses uv for desktop/server installs and Python's stdlib venv + pip on Termux.
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
@@ -28,7 +28,7 @@ BOLD='\033[1m'
 # Configuration
 REPO_URL_SSH="git@github.com:NousResearch/hermes-agent.git"
 REPO_URL_HTTPS="https://github.com/NousResearch/hermes-agent.git"
-HERMES_HOME="$HOME/.hermes"
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
 INSTALL_DIR="${HERMES_INSTALL_DIR:-$HERMES_HOME/hermes-agent}"
 PYTHON_VERSION="3.11"
 NODE_VERSION="22"
@@ -66,6 +66,10 @@ while [[ $# -gt 0 ]]; do
             INSTALL_DIR="$2"
             shift 2
             ;;
+        --hermes-home)
+            HERMES_HOME="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "Hermes Agent Installer"
             echo ""
@@ -76,6 +80,7 @@ while [[ $# -gt 0 ]]; do
             echo "  --skip-setup   Skip interactive setup wizard"
             echo "  --branch NAME  Git branch to install (default: main)"
             echo "  --dir PATH     Installation directory (default: ~/.hermes/hermes-agent)"
+            echo "  --hermes-home PATH  Data directory (default: ~/.hermes, or \$HERMES_HOME)"
             echo "  -h, --help     Show this help"
             exit 0
             ;;
@@ -94,7 +99,7 @@ print_banner() {
     echo ""
     echo -e "${MAGENTA}${BOLD}"
     echo "┌─────────────────────────────────────────────────────────┐"
-    echo "│             ⚕ Hermes Agent Installer                   │"
+    echo "│             ⚕ Hermes Agent Installer                    │"
     echo "├─────────────────────────────────────────────────────────┤"
     echo "│  An open source AI agent by Nous Research.              │"
     echo "└─────────────────────────────────────────────────────────┘"
@@ -117,6 +122,73 @@ log_error() {
     echo -e "${RED}✗${NC} $1"
 }
 
+prompt_yes_no() {
+    local question="$1"
+    local default="${2:-yes}"
+    local prompt_suffix
+    local answer=""
+
+    # Use case patterns (not ${var,,}) so this works on bash 3.2 (macOS /bin/bash).
+    case "$default" in
+        [yY]|[yY][eE][sS]|[tT][rR][uU][eE]|1) prompt_suffix="[Y/n]" ;;
+        *) prompt_suffix="[y/N]" ;;
+    esac
+
+    if [ "$IS_INTERACTIVE" = true ]; then
+        read -r -p "$question $prompt_suffix " answer || answer=""
+    elif [ -r /dev/tty ] && [ -w /dev/tty ]; then
+        printf "%s %s " "$question" "$prompt_suffix" > /dev/tty
+        IFS= read -r answer < /dev/tty || answer=""
+    else
+        answer=""
+    fi
+
+    answer="${answer#"${answer%%[![:space:]]*}"}"
+    answer="${answer%"${answer##*[![:space:]]}"}"
+
+    if [ -z "$answer" ]; then
+        case "$default" in
+            [yY]|[yY][eE][sS]|[tT][rR][uU][eE]|1) return 0 ;;
+            *) return 1 ;;
+        esac
+    fi
+
+    case "$answer" in
+        [yY]|[yY][eE][sS]) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+is_termux() {
+    [ -n "${TERMUX_VERSION:-}" ] || [[ "${PREFIX:-}" == *"com.termux/files/usr"* ]]
+}
+
+get_command_link_dir() {
+    if is_termux && [ -n "${PREFIX:-}" ]; then
+        echo "$PREFIX/bin"
+    else
+        echo "$HOME/.local/bin"
+    fi
+}
+
+get_command_link_display_dir() {
+    if is_termux && [ -n "${PREFIX:-}" ]; then
+        echo '$PREFIX/bin'
+    else
+        echo '~/.local/bin'
+    fi
+}
+
+get_hermes_command_path() {
+    local link_dir
+    link_dir="$(get_command_link_dir)"
+    if [ -x "$link_dir/hermes" ]; then
+        echo "$link_dir/hermes"
+    else
+        echo "hermes"
+    fi
+}
+
 # ============================================================================
 # System detection
 # ============================================================================
@@ -124,12 +196,17 @@ log_error() {
 detect_os() {
     case "$(uname -s)" in
         Linux*)
-            OS="linux"
-            if [ -f /etc/os-release ]; then
-                . /etc/os-release
-                DISTRO="$ID"
+            if is_termux; then
+                OS="android"
+                DISTRO="termux"
             else
-                DISTRO="unknown"
+                OS="linux"
+                if [ -f /etc/os-release ]; then
+                    . /etc/os-release
+                    DISTRO="$ID"
+                else
+                    DISTRO="unknown"
+                fi
             fi
             ;;
         Darwin*)
@@ -158,6 +235,12 @@ detect_os() {
 # ============================================================================
 
 install_uv() {
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Termux detected — using Python's stdlib venv + pip instead of uv"
+        UV_CMD=""
+        return 0
+    fi
+
     log_info "Checking for uv package manager..."
 
     # Check common locations for uv
@@ -209,6 +292,25 @@ install_uv() {
 }
 
 check_python() {
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Checking Termux Python..."
+        if command -v python >/dev/null 2>&1; then
+            PYTHON_PATH="$(command -v python)"
+            if "$PYTHON_PATH" -c 'import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 1)' 2>/dev/null; then
+                PYTHON_FOUND_VERSION=$($PYTHON_PATH --version 2>/dev/null)
+                log_success "Python found: $PYTHON_FOUND_VERSION"
+                return 0
+            fi
+        fi
+
+        log_info "Installing Python via pkg..."
+        pkg install -y python >/dev/null
+        PYTHON_PATH="$(command -v python)"
+        PYTHON_FOUND_VERSION=$($PYTHON_PATH --version 2>/dev/null)
+        log_success "Python installed: $PYTHON_FOUND_VERSION"
+        return 0
+    fi
+
     log_info "Checking Python $PYTHON_VERSION..."
 
     # Let uv handle Python — it can download and manage Python versions
@@ -243,6 +345,17 @@ check_git() {
     fi
 
     log_error "Git not found"
+
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Installing Git via pkg..."
+        pkg install -y git >/dev/null
+        if command -v git >/dev/null 2>&1; then
+            GIT_VERSION=$(git --version | awk '{print $3}')
+            log_success "Git $GIT_VERSION installed"
+            return 0
+        fi
+    fi
+
     log_info "Please install Git:"
 
     case "$OS" in
@@ -261,6 +374,9 @@ check_git() {
                     log_info "  Use your package manager to install git"
                     ;;
             esac
+            ;;
+        android)
+            log_info "  pkg install git"
             ;;
         macos)
             log_info "  xcode-select --install"
@@ -290,11 +406,29 @@ check_node() {
         return 0
     fi
 
-    log_info "Node.js not found — installing Node.js $NODE_VERSION LTS..."
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Node.js not found — installing Node.js via pkg..."
+    else
+        log_info "Node.js not found — installing Node.js $NODE_VERSION LTS..."
+    fi
     install_node
 }
 
 install_node() {
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Installing Node.js via pkg..."
+        if pkg install -y nodejs >/dev/null; then
+            local installed_ver
+            installed_ver=$(node --version 2>/dev/null)
+            log_success "Node.js $installed_ver installed via pkg"
+            HAS_NODE=true
+        else
+            log_warn "Failed to install Node.js via pkg"
+            HAS_NODE=false
+        fi
+        return 0
+    fi
+
     local arch=$(uname -m)
     local node_arch
     case "$arch" in
@@ -413,6 +547,30 @@ install_system_packages() {
         need_ffmpeg=true
     fi
 
+    # Termux always needs the Android build toolchain for the tested pip path,
+    # even when ripgrep/ffmpeg are already present.
+    if [ "$DISTRO" = "termux" ]; then
+        local termux_pkgs=(clang rust make pkg-config libffi openssl)
+        if [ "$need_ripgrep" = true ]; then
+            termux_pkgs+=("ripgrep")
+        fi
+        if [ "$need_ffmpeg" = true ]; then
+            termux_pkgs+=("ffmpeg")
+        fi
+
+        log_info "Installing Termux packages: ${termux_pkgs[*]}"
+        if pkg install -y "${termux_pkgs[@]}" >/dev/null; then
+            [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
+            [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+            log_success "Termux build dependencies installed"
+            return 0
+        fi
+
+        log_warn "Could not auto-install all Termux packages"
+        log_info "Install manually: pkg install ${termux_pkgs[*]}"
+        return 0
+    fi
+
     # Nothing to install — done
     if [ "$need_ripgrep" = false ] && [ "$need_ffmpeg" = false ]; then
         return 0
@@ -483,18 +641,31 @@ install_system_packages() {
         elif command -v sudo &> /dev/null; then
             if [ "$IS_INTERACTIVE" = true ]; then
                 echo ""
-                read -p "Install ${description}? (requires sudo) [y/N] " -n 1 -r
-                echo
-                if [[ $REPLY =~ ^[Yy]$ ]]; then
+                log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
+                log_info "Hermes Agent itself does not require or retain root access."
+                if prompt_yes_no "Install ${description}? (requires sudo)" "no"; then
                     if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd; then
                         [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
                         [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
                         return 0
                     fi
                 fi
+            elif [ -e /dev/tty ]; then
+                # Non-interactive (e.g. curl | bash) but a terminal is available.
+                # Read the prompt from /dev/tty (same approach the setup wizard uses).
+                echo ""
+                log_info "sudo is needed ONLY to install optional system packages (${pkgs[*]}) via your package manager."
+                log_info "Hermes Agent itself does not require or retain root access."
+                if prompt_yes_no "Install ${description}?" "yes"; then
+                    if sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a $install_cmd < /dev/tty; then
+                        [ "$need_ripgrep" = true ] && HAS_RIPGREP=true && log_success "ripgrep installed"
+                        [ "$need_ffmpeg" = true ]  && HAS_FFMPEG=true  && log_success "ffmpeg installed"
+                        return 0
+                    fi
+                fi
             else
-                log_warn "Non-interactive mode: cannot prompt for sudo password"
-                log_info "Install missing packages manually: sudo $install_cmd"
+                log_warn "Non-interactive mode and no terminal available — cannot install system packages"
+                log_info "Install manually after setup completes: sudo $install_cmd"
             fi
         fi
     fi
@@ -533,6 +704,9 @@ show_manual_install_hint() {
                 *)             log_info "  Use your package manager or visit the project homepage" ;;
             esac
             ;;
+        android)
+            log_info "  pkg install $pkg"
+            ;;
         macos) log_info "  brew install $pkg" ;;
     esac
 }
@@ -548,9 +722,51 @@ clone_repo() {
         if [ -d "$INSTALL_DIR/.git" ]; then
             log_info "Existing installation found, updating..."
             cd "$INSTALL_DIR"
+
+            local autostash_ref=""
+            if [ -n "$(git status --porcelain)" ]; then
+                local stash_name
+                stash_name="hermes-install-autostash-$(date -u +%Y%m%d-%H%M%S)"
+                log_info "Local changes detected, stashing before update..."
+                git stash push --include-untracked -m "$stash_name"
+                autostash_ref="$(git rev-parse --verify refs/stash)"
+            fi
+
             git fetch origin
             git checkout "$BRANCH"
-            git pull origin "$BRANCH"
+            git pull --ff-only origin "$BRANCH"
+
+            if [ -n "$autostash_ref" ]; then
+                local restore_now="yes"
+                if [ -t 0 ] && [ -t 1 ]; then
+                    echo
+                    log_warn "Local changes were stashed before updating."
+                    log_warn "Restoring them may reapply local customizations onto the updated codebase."
+                    printf "Restore local changes now? [Y/n] "
+                    read -r restore_answer
+                    case "$restore_answer" in
+                        ""|y|Y|yes|YES|Yes) restore_now="yes" ;;
+                        *) restore_now="no" ;;
+                    esac
+                fi
+
+                if [ "$restore_now" = "yes" ]; then
+                    log_info "Restoring local changes..."
+                    if git stash apply "$autostash_ref"; then
+                        git stash drop "$autostash_ref" >/dev/null
+                        log_warn "Local changes were restored on top of the updated codebase."
+                        log_warn "Review git diff / git status if Hermes behaves unexpectedly."
+                    else
+                        log_error "Update succeeded, but restoring local changes failed. Your changes are still preserved in git stash."
+                        log_info "Resolve manually with: git stash apply $autostash_ref"
+                        exit 1
+                    fi
+                else
+                    log_info "Skipped restoring local changes."
+                    log_info "Your changes are still preserved in git stash."
+                    log_info "Restore manually with: git stash apply $autostash_ref"
+                fi
+            fi
         else
             log_error "Directory exists but is not a git repository: $INSTALL_DIR"
             log_info "Remove it or choose a different directory with --dir"
@@ -558,17 +774,16 @@ clone_repo() {
         fi
     else
         # Try SSH first (for private repo access), fall back to HTTPS
-        # Use --recurse-submodules to also clone mini-swe-agent and tinker-atropos
         # GIT_SSH_COMMAND disables interactive prompts and sets a short timeout
         # so SSH fails fast instead of hanging when no key is configured.
         log_info "Trying SSH clone..."
         if GIT_SSH_COMMAND="ssh -o BatchMode=yes -o ConnectTimeout=5" \
-           git clone --branch "$BRANCH" --recurse-submodules "$REPO_URL_SSH" "$INSTALL_DIR" 2>/dev/null; then
+           git clone --branch "$BRANCH" "$REPO_URL_SSH" "$INSTALL_DIR" 2>/dev/null; then
             log_success "Cloned via SSH"
         else
             rm -rf "$INSTALL_DIR" 2>/dev/null  # Clean up partial SSH clone
             log_info "SSH failed, trying HTTPS..."
-            if git clone --branch "$BRANCH" --recurse-submodules "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
+            if git clone --branch "$BRANCH" "$REPO_URL_HTTPS" "$INSTALL_DIR"; then
                 log_success "Cloned via HTTPS"
             else
                 log_error "Failed to clone repository"
@@ -579,17 +794,25 @@ clone_repo() {
 
     cd "$INSTALL_DIR"
 
-    # Ensure submodules are initialized and updated (for existing installs or if --recurse failed)
-    log_info "Initializing submodules (mini-swe-agent, tinker-atropos)..."
-    git submodule update --init --recursive
-    log_success "Submodules ready"
-
     log_success "Repository ready"
 }
 
 setup_venv() {
     if [ "$USE_VENV" = false ]; then
         log_info "Skipping virtual environment (--no-venv)"
+        return 0
+    fi
+
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Creating virtual environment with Termux Python..."
+
+        if [ -d "venv" ]; then
+            log_info "Virtual environment already exists, recreating..."
+            rm -rf venv
+        fi
+
+        "$PYTHON_PATH" -m venv venv
+        log_success "Virtual environment ready ($(./venv/bin/python --version 2>/dev/null))"
         return 0
     fi
 
@@ -608,6 +831,46 @@ setup_venv() {
 
 install_deps() {
     log_info "Installing dependencies..."
+
+    if [ "$DISTRO" = "termux" ]; then
+        if [ "$USE_VENV" = true ]; then
+            export VIRTUAL_ENV="$INSTALL_DIR/venv"
+            PIP_PYTHON="$INSTALL_DIR/venv/bin/python"
+        else
+            PIP_PYTHON="$PYTHON_PATH"
+        fi
+
+        if [ -z "${ANDROID_API_LEVEL:-}" ]; then
+            ANDROID_API_LEVEL="$(getprop ro.build.version.sdk 2>/dev/null || true)"
+            if [ -z "$ANDROID_API_LEVEL" ]; then
+                ANDROID_API_LEVEL=24
+            fi
+            export ANDROID_API_LEVEL
+            log_info "Using ANDROID_API_LEVEL=$ANDROID_API_LEVEL for Android wheel builds"
+        fi
+
+        "$PIP_PYTHON" -m pip install --upgrade pip setuptools wheel >/dev/null
+        if ! "$PIP_PYTHON" -m pip install -e '.[termux]' -c constraints-termux.txt; then
+            log_warn "Termux feature install (.[termux]) failed, trying base install..."
+            if ! "$PIP_PYTHON" -m pip install -e '.' -c constraints-termux.txt; then
+                log_error "Package installation failed on Termux."
+                log_info "Ensure these packages are installed: pkg install clang rust make pkg-config libffi openssl"
+                log_info "Then re-run: cd $INSTALL_DIR && python -m pip install -e '.[termux]' -c constraints-termux.txt"
+                exit 1
+            fi
+        fi
+
+        log_success "Main package installed"
+        log_info "Termux note: browser/WhatsApp tooling is not installed by default; see the Termux guide for optional follow-up steps."
+
+        if [ -d "tinker-atropos" ] && [ -f "tinker-atropos/pyproject.toml" ]; then
+            log_info "tinker-atropos submodule found — skipping install (optional, for RL training)"
+            log_info "  To install later: $PIP_PYTHON -m pip install -e \"./tinker-atropos\""
+        fi
+
+        log_success "All dependencies installed"
+        return 0
+    fi
 
     if [ "$USE_VENV" = true ]; then
         # Tell uv to install into our venv (no need to activate)
@@ -631,9 +894,9 @@ install_deps() {
                     sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq build-essential python3-dev libffi-dev >/dev/null 2>&1 || true
                     log_success "Build tools installed"
                 else
-                    read -p "Install build tools (build-essential, python3-dev)? (requires sudo) [Y/n] " -n 1 -r < /dev/tty
-                    echo
-                    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
+                    log_info "sudo is needed ONLY to install build tools (build-essential, python3-dev, libffi-dev) via apt."
+                    log_info "Hermes Agent itself does not require or retain root access."
+                    if prompt_yes_no "Install build tools?" "yes"; then
                         sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y -qq build-essential python3-dev libffi-dev >/dev/null 2>&1 || true
                         log_success "Build tools installed"
                     fi
@@ -644,33 +907,28 @@ install_deps() {
 
     # Install the main package in editable mode with all extras.
     # Try [all] first, fall back to base install if extras have issues.
-    if ! $UV_CMD pip install -e ".[all]" 2>/dev/null; then
+    ALL_INSTALL_LOG=$(mktemp)
+    if ! $UV_CMD pip install -e ".[all]" 2>"$ALL_INSTALL_LOG"; then
         log_warn "Full install (.[all]) failed, trying base install..."
+        log_info "Reason: $(tail -5 "$ALL_INSTALL_LOG" | head -3)"
+        rm -f "$ALL_INSTALL_LOG"
         if ! $UV_CMD pip install -e "."; then
             log_error "Package installation failed."
             log_info "Check that build tools are installed: sudo apt install build-essential python3-dev"
             log_info "Then re-run: cd $INSTALL_DIR && uv pip install -e '.[all]'"
             exit 1
         fi
+    else
+        rm -f "$ALL_INSTALL_LOG"
     fi
 
     log_success "Main package installed"
 
-    # Install submodules
-    log_info "Installing mini-swe-agent (terminal tool backend)..."
-    if [ -d "mini-swe-agent" ] && [ -f "mini-swe-agent/pyproject.toml" ]; then
-        $UV_CMD pip install -e "./mini-swe-agent" || log_warn "mini-swe-agent install failed (terminal tools may not work)"
-        log_success "mini-swe-agent installed"
-    else
-        log_warn "mini-swe-agent not found (run: git submodule update --init)"
-    fi
-
-    log_info "Installing tinker-atropos (RL training backend)..."
+    # tinker-atropos (RL training) is optional — skip by default.
+    # To enable RL tools: git submodule update --init tinker-atropos && uv pip install -e "./tinker-atropos"
     if [ -d "tinker-atropos" ] && [ -f "tinker-atropos/pyproject.toml" ]; then
-        $UV_CMD pip install -e "./tinker-atropos" || log_warn "tinker-atropos install failed (RL tools may not work)"
-        log_success "tinker-atropos installed"
-    else
-        log_warn "tinker-atropos not found (run: git submodule update --init)"
+        log_info "tinker-atropos submodule found — skipping install (optional, for RL training)"
+        log_info "  To install: $UV_CMD pip install -e \"./tinker-atropos\""
     fi
 
     log_success "All dependencies installed"
@@ -693,28 +951,58 @@ setup_path() {
     if [ ! -x "$HERMES_BIN" ]; then
         log_warn "hermes entry point not found at $HERMES_BIN"
         log_info "This usually means the pip install didn't complete successfully."
-        log_info "Try: cd $INSTALL_DIR && uv pip install -e '.[all]'"
+        if [ "$DISTRO" = "termux" ]; then
+            log_info "Try: cd $INSTALL_DIR && python -m pip install -e '.[termux]' -c constraints-termux.txt"
+        else
+            log_info "Try: cd $INSTALL_DIR && uv pip install -e '.[all]'"
+        fi
         return 0
     fi
 
-    # Create symlink in ~/.local/bin (standard user binary location, usually on PATH)
-    mkdir -p "$HOME/.local/bin"
-    ln -sf "$HERMES_BIN" "$HOME/.local/bin/hermes"
-    log_success "Symlinked hermes → ~/.local/bin/hermes"
+    local command_link_dir
+    local command_link_display_dir
+    command_link_dir="$(get_command_link_dir)"
+    command_link_display_dir="$(get_command_link_display_dir)"
+
+    # Create a user-facing shim for the hermes command.
+    mkdir -p "$command_link_dir"
+    ln -sf "$HERMES_BIN" "$command_link_dir/hermes"
+    log_success "Symlinked hermes → $command_link_display_dir/hermes"
+
+    if [ "$DISTRO" = "termux" ]; then
+        export PATH="$command_link_dir:$PATH"
+        log_info "$command_link_display_dir is the native Termux command path"
+        log_success "hermes command ready"
+        return 0
+    fi
 
     # Check if ~/.local/bin is on PATH; if not, add it to shell config.
     # Detect the user's actual login shell (not the shell running this script,
     # which is always bash when piped from curl).
-    if ! echo "$PATH" | tr ':' '\n' | grep -q "^$HOME/.local/bin$"; then
+    if ! echo "$PATH" | tr ':' '\n' | grep -q "^$command_link_dir$"; then
         SHELL_CONFIGS=()
+        IS_FISH=false
         LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
         case "$LOGIN_SHELL" in
             zsh)
                 [ -f "$HOME/.zshrc" ] && SHELL_CONFIGS+=("$HOME/.zshrc")
+                [ -f "$HOME/.zprofile" ] && SHELL_CONFIGS+=("$HOME/.zprofile")
+                # If neither exists, create ~/.zshrc (common on fresh macOS installs)
+                if [ ${#SHELL_CONFIGS[@]} -eq 0 ]; then
+                    touch "$HOME/.zshrc"
+                    SHELL_CONFIGS+=("$HOME/.zshrc")
+                fi
                 ;;
             bash)
                 [ -f "$HOME/.bashrc" ] && SHELL_CONFIGS+=("$HOME/.bashrc")
                 [ -f "$HOME/.bash_profile" ] && SHELL_CONFIGS+=("$HOME/.bash_profile")
+                ;;
+            fish)
+                # fish uses ~/.config/fish/config.fish and fish_add_path — not export PATH=
+                IS_FISH=true
+                FISH_CONFIG="$HOME/.config/fish/config.fish"
+                mkdir -p "$(dirname "$FISH_CONFIG")"
+                touch "$FISH_CONFIG"
                 ;;
             *)
                 [ -f "$HOME/.bashrc" ] && SHELL_CONFIGS+=("$HOME/.bashrc")
@@ -723,7 +1011,7 @@ setup_path() {
         esac
         # Also ensure ~/.profile has it (sourced by login shells on
         # Ubuntu/Debian/WSL even when ~/.bashrc is skipped)
-        [ -f "$HOME/.profile" ] && SHELL_CONFIGS+=("$HOME/.profile")
+        [ "$IS_FISH" = "false" ] && [ -f "$HOME/.profile" ] && SHELL_CONFIGS+=("$HOME/.profile")
 
         PATH_LINE='export PATH="$HOME/.local/bin:$PATH"'
 
@@ -736,7 +1024,17 @@ setup_path() {
             fi
         done
 
-        if [ ${#SHELL_CONFIGS[@]} -eq 0 ]; then
+        # fish uses fish_add_path instead of export PATH=...
+        if [ "$IS_FISH" = "true" ]; then
+            if ! grep -q 'fish_add_path.*\.local/bin' "$FISH_CONFIG" 2>/dev/null; then
+                echo "" >> "$FISH_CONFIG"
+                echo "# Hermes Agent — ensure ~/.local/bin is on PATH" >> "$FISH_CONFIG"
+                echo 'fish_add_path "$HOME/.local/bin"' >> "$FISH_CONFIG"
+                log_success "Added ~/.local/bin to PATH in $FISH_CONFIG"
+            fi
+        fi
+
+        if [ "$IS_FISH" = "false" ] && [ ${#SHELL_CONFIGS[@]} -eq 0 ]; then
             log_warn "Could not detect shell config file to add ~/.local/bin to PATH"
             log_info "Add manually: $PATH_LINE"
         fi
@@ -745,7 +1043,7 @@ setup_path() {
     fi
 
     # Export for current session so hermes works immediately
-    export PATH="$HOME/.local/bin:$PATH"
+    export PATH="$command_link_dir:$PATH"
 
     log_success "hermes command ready"
 }
@@ -822,6 +1120,13 @@ install_node_deps() {
         return 0
     fi
 
+    if [ "$DISTRO" = "termux" ]; then
+        log_info "Skipping automatic Node/browser dependency setup on Termux"
+        log_info "Browser automation and WhatsApp bridge are not part of the tested Termux install path yet."
+        log_info "If you want to experiment manually later, run: cd $INSTALL_DIR && npm install"
+        return 0
+    fi
+
     if [ -f "$INSTALL_DIR/package.json" ]; then
         log_info "Installing Node.js dependencies (browser tools)..."
         cd "$INSTALL_DIR"
@@ -829,6 +1134,74 @@ install_node_deps() {
             log_warn "npm install failed (browser tools may not work)"
         }
         log_success "Node.js dependencies installed"
+
+        # Install Playwright browser + system dependencies.
+        # Playwright's --with-deps only supports apt-based systems natively.
+        # For Arch/Manjaro we install the system libs via pacman first.
+        # Other systems must install Chromium dependencies manually.
+        log_info "Installing browser engine (Playwright Chromium)..."
+        case "$DISTRO" in
+            ubuntu|debian|raspbian|pop|linuxmint|elementary|zorin|kali|parrot)
+                log_info "Playwright may request sudo to install browser system dependencies (shared libraries)."
+                log_info "This is standard Playwright setup — Hermes itself does not require root access."
+                cd "$INSTALL_DIR" && npx playwright install --with-deps chromium 2>/dev/null || {
+                    log_warn "Playwright browser installation failed — browser tools will not work."
+                    log_warn "Try running manually: cd $INSTALL_DIR && npx playwright install --with-deps chromium"
+                }
+                ;;
+            arch|manjaro)
+                if command -v pacman &> /dev/null; then
+                    log_info "Arch/Manjaro detected — installing Chromium system dependencies via pacman..."
+                    if command -v sudo &> /dev/null && sudo -n true 2>/dev/null; then
+                        sudo NEEDRESTART_MODE=a pacman -S --noconfirm --needed \
+                            nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib >/dev/null 2>&1 || true
+                    elif [ "$(id -u)" -eq 0 ]; then
+                        pacman -S --noconfirm --needed \
+                            nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib >/dev/null 2>&1 || true
+                    else
+                        log_warn "Cannot install browser deps without sudo. Run manually:"
+                        log_warn "  sudo pacman -S nss atk at-spi2-core cups libdrm libxkbcommon mesa pango cairo alsa-lib"
+                    fi
+                fi
+                cd "$INSTALL_DIR" && npx playwright install chromium 2>/dev/null || {
+                    log_warn "Playwright browser installation failed — browser tools will not work."
+                }
+                ;;
+            fedora|rhel|centos|rocky|alma)
+                log_warn "Playwright does not support automatic dependency installation on RPM-based systems."
+                log_info "Install Chromium system dependencies manually before using browser tools:"
+                log_info "  sudo dnf install nss atk at-spi2-core cups-libs libdrm libxkbcommon mesa-libgbm pango cairo alsa-lib"
+                cd "$INSTALL_DIR" && npx playwright install chromium 2>/dev/null || {
+                    log_warn "Playwright browser installation failed — install dependencies above and retry."
+                }
+                ;;
+            opensuse*|sles)
+                log_warn "Playwright does not support automatic dependency installation on zypper-based systems."
+                log_info "Install Chromium system dependencies manually before using browser tools:"
+                log_info "  sudo zypper install mozilla-nss libatk-1_0-0 at-spi2-core cups-libs libdrm2 libxkbcommon0 Mesa-libgbm1 pango cairo libasound2"
+                cd "$INSTALL_DIR" && npx playwright install chromium 2>/dev/null || {
+                    log_warn "Playwright browser installation failed — install dependencies above and retry."
+                }
+                ;;
+            *)
+                log_warn "Playwright does not support automatic dependency installation on $DISTRO."
+                log_info "Install Chromium/browser system dependencies for your distribution, then run:"
+                log_info "  cd $INSTALL_DIR && npx playwright install chromium"
+                log_info "Browser tools will not work until dependencies are installed."
+                cd "$INSTALL_DIR" && npx playwright install chromium 2>/dev/null || true
+                ;;
+        esac
+        log_success "Browser engine setup complete"
+    fi
+
+    # Install TUI dependencies
+    if [ -f "$INSTALL_DIR/ui-tui/package.json" ]; then
+        log_info "Installing TUI dependencies..."
+        cd "$INSTALL_DIR/ui-tui"
+        npm install --silent 2>/dev/null || {
+            log_warn "TUI npm install failed (hermes --tui may not work)"
+        }
+        log_success "TUI dependencies installed"
     fi
 
     # Install WhatsApp bridge dependencies
@@ -904,11 +1277,8 @@ maybe_start_gateway() {
             log_info "WhatsApp is enabled but not yet paired."
             log_info "Running 'hermes whatsapp' to pair via QR code..."
             echo ""
-            read -p "Pair WhatsApp now? [Y/n] " -n 1 -r
-            echo
-            if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-                HERMES_CMD="$HOME/.local/bin/hermes"
-                [ ! -x "$HERMES_CMD" ] && HERMES_CMD="hermes"
+            if prompt_yes_no "Pair WhatsApp now?" "yes"; then
+                HERMES_CMD="$(get_hermes_command_path)"
                 $HERMES_CMD whatsapp || true
             fi
         else
@@ -922,16 +1292,21 @@ maybe_start_gateway() {
     fi
 
     echo ""
-    read -p "Would you like to install the gateway as a background service? [Y/n] " -n 1 -r < /dev/tty
-    echo
-
-    if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
-        HERMES_CMD="$HOME/.local/bin/hermes"
-        if [ ! -x "$HERMES_CMD" ]; then
-            HERMES_CMD="hermes"
+    local should_install_gateway=false
+    if [ "$DISTRO" = "termux" ]; then
+        if prompt_yes_no "Would you like to start the gateway in the background?" "yes"; then
+            should_install_gateway=true
         fi
+    else
+        if prompt_yes_no "Would you like to install the gateway as a background service?" "yes"; then
+            should_install_gateway=true
+        fi
+    fi
 
-        if command -v systemctl &> /dev/null; then
+    if [ "$should_install_gateway" = true ]; then
+        HERMES_CMD="$(get_hermes_command_path)"
+
+        if [ "$DISTRO" != "termux" ] && command -v systemctl &> /dev/null; then
             log_info "Installing systemd service..."
             if $HERMES_CMD gateway install 2>/dev/null; then
                 log_success "Gateway service installed"
@@ -944,12 +1319,19 @@ maybe_start_gateway() {
                 log_warn "Systemd install failed. You can start manually: hermes gateway"
             fi
         else
-            log_info "systemd not available — starting gateway in background..."
+            if [ "$DISTRO" = "termux" ]; then
+                log_info "Termux detected — starting gateway in best-effort background mode..."
+            else
+                log_info "systemd not available — starting gateway in background..."
+            fi
             nohup $HERMES_CMD gateway > "$HERMES_HOME/logs/gateway.log" 2>&1 &
             GATEWAY_PID=$!
             log_success "Gateway started (PID $GATEWAY_PID). Logs: ~/.hermes/logs/gateway.log"
             log_info "To stop: kill $GATEWAY_PID"
             log_info "To restart later: hermes gateway"
+            if [ "$DISTRO" = "termux" ]; then
+                log_warn "Android may stop background processes when Termux is suspended or the system reclaims resources."
+            fi
         fi
     else
         log_info "Skipped. Start the gateway later with: hermes gateway"
@@ -988,17 +1370,35 @@ print_success() {
 
     echo -e "${CYAN}─────────────────────────────────────────────────────────${NC}"
     echo ""
-    echo -e "${YELLOW}⚡ Reload your shell to use 'hermes' command:${NC}"
-    echo ""
-    echo "   source ~/.bashrc   # or ~/.zshrc"
-    echo ""
+    if [ "$DISTRO" = "termux" ]; then
+        echo -e "${YELLOW}⚡ 'hermes' was linked into $(get_command_link_display_dir), which is already on PATH in Termux.${NC}"
+        echo ""
+    else
+        echo -e "${YELLOW}⚡ Reload your shell to use 'hermes' command:${NC}"
+        echo ""
+        LOGIN_SHELL="$(basename "${SHELL:-/bin/bash}")"
+        if [ "$LOGIN_SHELL" = "zsh" ]; then
+            echo "   source ~/.zshrc"
+        elif [ "$LOGIN_SHELL" = "bash" ]; then
+            echo "   source ~/.bashrc"
+        elif [ "$LOGIN_SHELL" = "fish" ]; then
+            echo "   source ~/.config/fish/config.fish"
+        else
+            echo "   source ~/.bashrc   # or ~/.zshrc"
+        fi
+        echo ""
+    fi
 
     # Show Node.js warning if auto-install failed
     if [ "$HAS_NODE" = false ]; then
         echo -e "${YELLOW}"
         echo "Note: Node.js could not be installed automatically."
         echo "Browser tools need Node.js. Install manually:"
-        echo "  https://nodejs.org/en/download/"
+        if [ "$DISTRO" = "termux" ]; then
+            echo "  pkg install nodejs"
+        else
+            echo "  https://nodejs.org/en/download/"
+        fi
         echo -e "${NC}"
     fi
 
@@ -1007,7 +1407,11 @@ print_success() {
         echo -e "${YELLOW}"
         echo "Note: ripgrep (rg) was not found. File search will use"
         echo "grep as a fallback. For faster search in large codebases,"
-        echo "install ripgrep: sudo apt install ripgrep (or brew install ripgrep)"
+        if [ "$DISTRO" = "termux" ]; then
+            echo "install ripgrep: pkg install ripgrep"
+        else
+            echo "install ripgrep: sudo apt install ripgrep (or brew install ripgrep)"
+        fi
         echo -e "${NC}"
     fi
 }

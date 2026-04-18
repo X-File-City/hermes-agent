@@ -20,6 +20,12 @@ We value contributions in this order:
 6. **New tools** — rarely needed; most capabilities should be skills
 7. **Documentation** — fixes, clarifications, new examples
 
+## Common contribution paths
+
+- Building a new tool? Start with [Adding Tools](./adding-tools.md)
+- Building a new skill? Start with [Creating Skills](./creating-skills.md)
+- Building a new inference provider? Start with [Adding Providers](./adding-providers.md)
+
 ## Development Setup
 
 ### Prerequisites
@@ -27,7 +33,7 @@ We value contributions in this order:
 | Requirement | Notes |
 |-------------|-------|
 | **Git** | With `--recurse-submodules` support |
-| **Python 3.10+** | uv will install it if missing |
+| **Python 3.11+** | uv will install it if missing |
 | **uv** | Fast Python package manager ([install](https://docs.astral.sh/uv/)) |
 | **Node.js 18+** | Optional — needed for browser tools and WhatsApp bridge |
 
@@ -43,7 +49,6 @@ export VIRTUAL_ENV="$(pwd)/venv"
 
 # Install with all extras (messaging, cron, CLI menus, dev tools)
 uv pip install -e ".[all,dev]"
-uv pip install -e "./mini-swe-agent"
 uv pip install -e "./tinker-atropos"
 
 # Optional: browser tools
@@ -85,6 +90,7 @@ pytest tests/ -v
 - **Comments**: Only when explaining non-obvious intent, trade-offs, or API quirks
 - **Error handling**: Catch specific exceptions. Use `logger.warning()`/`logger.error()` with `exc_info=True` for unexpected errors
 - **Cross-platform**: Never assume Unix (see below)
+- **Profile-safe paths**: Never hardcode `~/.hermes` — use `get_hermes_home()` from `hermes_constants` for code paths and `display_hermes_home()` for user-facing messages. See [AGENTS.md](https://github.com/NousResearch/hermes-agent/blob/main/AGENTS.md#profiles-multi-instance-support) for full rules.
 
 ## Cross-Platform Compatibility
 

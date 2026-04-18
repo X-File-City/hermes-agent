@@ -1,7 +1,7 @@
 ---
 sidebar_position: 2
 title: "Installation"
-description: "Install Hermes Agent on Linux, macOS, or WSL2"
+description: "Install Hermes Agent on Linux, macOS, WSL2, or Android via Termux"
 ---
 
 # Installation
@@ -16,13 +16,30 @@ Get Hermes Agent up and running in under two minutes with the one-line installer
 curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
 ```
 
+### Android / Termux
+
+Hermes now ships a Termux-aware installer path too:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/NousResearch/hermes-agent/main/scripts/install.sh | bash
+```
+
+The installer detects Termux automatically and switches to a tested Android flow:
+- uses Termux `pkg` for system dependencies (`git`, `python`, `nodejs`, `ripgrep`, `ffmpeg`, build tools)
+- creates the virtualenv with `python -m venv`
+- exports `ANDROID_API_LEVEL` automatically for Android wheel builds
+- installs a curated `.[termux]` extra with `pip`
+- skips the untested browser / WhatsApp bootstrap by default
+
+If you want the fully explicit path, follow the dedicated [Termux guide](./termux.md).
+
 :::warning Windows
 Native Windows is **not supported**. Please install [WSL2](https://learn.microsoft.com/en-us/windows/wsl/install) and run Hermes Agent from there. The install command above works inside WSL2.
 :::
 
 ### What the Installer Does
 
-The installer handles everything automatically — all dependencies (Python, Node.js, ripgrep, ffmpeg), the repo clone, virtual environment, and global `hermes` command setup. It finishes by running the interactive setup wizard to configure your LLM provider.
+The installer handles everything automatically — all dependencies (Python, Node.js, ripgrep, ffmpeg), the repo clone, virtual environment, global `hermes` command setup, and LLM provider configuration. By the end, you're ready to chat.
 
 ### After Installation
 
@@ -30,8 +47,17 @@ Reload your shell and start chatting:
 
 ```bash
 source ~/.bashrc   # or: source ~/.zshrc
-hermes setup       # Configure API keys (if you skipped during install)
 hermes             # Start chatting!
+```
+
+To reconfigure individual settings later, use the dedicated commands:
+
+```bash
+hermes model          # Choose your LLM provider and model
+hermes tools          # Configure which tools are enabled
+hermes gateway setup  # Set up messaging platforms
+hermes config set     # Set individual config values
+hermes setup          # Or run the full setup wizard to configure everything at once
 ```
 
 ---
@@ -48,6 +74,10 @@ The only prerequisite is **Git**. The installer automatically handles everything
 
 :::info
 You do **not** need to install Python, Node.js, ripgrep, or ffmpeg manually. The installer detects what's missing and installs it for you. Just make sure `git` is available (`git --version`).
+:::
+
+:::tip Nix users
+If you use Nix (on NixOS, macOS, or Linux), there's a dedicated setup path with a Nix flake, declarative NixOS module, and optional container mode. See the **[Nix & NixOS Setup](./nix-setup.md)** guide.
 :::
 
 ---
@@ -105,29 +135,33 @@ uv pip install -e "."
 | Extra | What it adds | Install command |
 |-------|-------------|-----------------|
 | `all` | Everything below | `uv pip install -e ".[all]"` |
-| `messaging` | Telegram & Discord gateway | `uv pip install -e ".[messaging]"` |
+| `messaging` | Telegram, Discord & Slack gateway | `uv pip install -e ".[messaging]"` |
 | `cron` | Cron expression parsing for scheduled tasks | `uv pip install -e ".[cron]"` |
 | `cli` | Terminal menu UI for setup wizard | `uv pip install -e ".[cli]"` |
 | `modal` | Modal cloud execution backend | `uv pip install -e ".[modal]"` |
 | `tts-premium` | ElevenLabs premium voices | `uv pip install -e ".[tts-premium]"` |
+| `voice` | CLI microphone input + audio playback | `uv pip install -e ".[voice]"` |
 | `pty` | PTY terminal support | `uv pip install -e ".[pty]"` |
+| `termux` | Tested Android / Termux bundle (`cron`, `cli`, `pty`, `mcp`, `honcho`, `acp`) | `python -m pip install -e ".[termux]" -c constraints-termux.txt` |
 | `honcho` | AI-native memory (Honcho integration) | `uv pip install -e ".[honcho]"` |
 | `mcp` | Model Context Protocol support | `uv pip install -e ".[mcp]"` |
 | `homeassistant` | Home Assistant integration | `uv pip install -e ".[homeassistant]"` |
+| `acp` | ACP editor integration support | `uv pip install -e ".[acp]"` |
 | `slack` | Slack messaging | `uv pip install -e ".[slack]"` |
 | `dev` | pytest & test utilities | `uv pip install -e ".[dev]"` |
 
 You can combine extras: `uv pip install -e ".[messaging,cron]"`
 
+:::tip Termux users
+`.[all]` is not currently available on Android because the `voice` extra pulls `faster-whisper`, which depends on `ctranslate2` wheels that are not published for Android. Use `.[termux]` for the tested mobile install path, then add individual extras only as needed.
+:::
+
 </details>
 
-### Step 4: Install Submodule Packages
+### Step 4: Install Optional Submodules (if needed)
 
 ```bash
-# Terminal tool backend (required for terminal/command-execution)
-uv pip install -e "./mini-swe-agent"
-
-# RL training backend
+# RL training backend (optional)
 uv pip install -e "./tinker-atropos"
 ```
 
@@ -192,10 +226,10 @@ echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc && source ~/.zshrc
 fish_add_path $HOME/.local/bin
 ```
 
-### Step 9: Run the Setup Wizard (Optional)
+### Step 9: Configure Your Provider
 
 ```bash
-hermes setup
+hermes model       # Select your LLM provider and model
 ```
 
 ### Step 10: Verify the Installation
@@ -227,7 +261,6 @@ export VIRTUAL_ENV="$(pwd)/venv"
 
 # Install everything
 uv pip install -e ".[all]"
-uv pip install -e "./mini-swe-agent"
 uv pip install -e "./tinker-atropos"
 npm install  # optional, for browser tools and WhatsApp
 
@@ -253,7 +286,7 @@ hermes
 | Problem | Solution |
 |---------|----------|
 | `hermes: command not found` | Reload your shell (`source ~/.bashrc`) or check PATH |
-| `API key not set` | Run `hermes setup` or `hermes config set OPENROUTER_API_KEY your_key` |
+| `API key not set` | Run `hermes model` to configure your provider, or `hermes config set OPENROUTER_API_KEY your_key` |
 | Missing config after update | Run `hermes config check` then `hermes config migrate` |
 
 For more diagnostics, run `hermes doctor` — it will tell you exactly what's missing and how to fix it.

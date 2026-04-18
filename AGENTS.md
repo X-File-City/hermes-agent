@@ -1,78 +1,82 @@
 # Hermes Agent - Development Guide
 
-Instructions for AI coding assistants (GitHub Copilot, Cursor, etc.) and human developers.
-
-Hermes Agent is an AI agent harness with tool-calling capabilities, interactive CLI, messaging integrations, and scheduled tasks.
+Instructions for AI coding assistants and developers working on the hermes-agent codebase.
 
 ## Development Environment
 
-**IMPORTANT**: Always use the virtual environment if it exists:
 ```bash
-source venv/bin/activate  # Before running any Python commands
+source venv/bin/activate  # ALWAYS activate before running Python
 ```
 
 ## Project Structure
 
 ```
 hermes-agent/
-├── agent/                # Agent internals (extracted from run_agent.py)
-│   ├── model_metadata.py     # Model context lengths, token estimation
+├── run_agent.py          # AIAgent class — core conversation loop
+├── model_tools.py        # Tool orchestration, discover_builtin_tools(), handle_function_call()
+├── toolsets.py           # Toolset definitions, _HERMES_CORE_TOOLS list
+├── cli.py                # HermesCLI class — interactive CLI orchestrator
+├── hermes_state.py       # SessionDB — SQLite session store (FTS5 search)
+├── agent/                # Agent internals
+│   ├── prompt_builder.py     # System prompt assembly
 │   ├── context_compressor.py # Auto context compression
 │   ├── prompt_caching.py     # Anthropic prompt caching
-│   ├── prompt_builder.py     # System prompt assembly (identity, skills index, context files)
+│   ├── auxiliary_client.py   # Auxiliary LLM client (vision, summarization)
+│   ├── model_metadata.py     # Model context lengths, token estimation
+│   ├── models_dev.py         # models.dev registry integration (provider-aware context)
 │   ├── display.py            # KawaiiSpinner, tool preview formatting
+│   ├── skill_commands.py     # Skill slash commands (shared CLI/gateway)
 │   └── trajectory.py         # Trajectory saving helpers
-├── hermes_cli/           # CLI implementation
-│   ├── main.py           # Entry point, command dispatcher
-│   ├── banner.py         # Welcome banner, ASCII art, skills summary
-│   ├── commands.py       # Slash command definitions + autocomplete
-│   ├── callbacks.py      # Interactive prompt callbacks (clarify, sudo, approval)
+├── hermes_cli/           # CLI subcommands and setup
+│   ├── main.py           # Entry point — all `hermes` subcommands
+│   ├── config.py         # DEFAULT_CONFIG, OPTIONAL_ENV_VARS, migration
+│   ├── commands.py       # Slash command definitions + SlashCommandCompleter
+│   ├── callbacks.py      # Terminal callbacks (clarify, sudo, approval)
 │   ├── setup.py          # Interactive setup wizard
-│   ├── config.py         # Config management & migration
-│   ├── status.py         # Status display
-│   ├── doctor.py         # Diagnostics
-│   ├── gateway.py        # Gateway management
-│   ├── uninstall.py      # Uninstaller
-│   ├── cron.py           # Cron job management
-│   └── skills_hub.py     # Skills Hub CLI + /skills slash command
-├── tools/                # Tool implementations
-│   ├── registry.py            # Central tool registry (schemas, handlers, dispatch)
-│   ├── approval.py            # Dangerous command detection + per-session approval
-│   ├── environments/          # Terminal execution backends
-│   │   ├── base.py            # BaseEnvironment ABC
-│   │   ├── local.py           # Local execution with interrupt support
-│   │   ├── docker.py          # Docker container execution
-│   │   ├── ssh.py             # SSH remote execution
-│   │   ├── singularity.py     # Singularity/Apptainer + SIF management
-│   │   ├── modal.py           # Modal cloud execution
-│   │   └── daytona.py         # Daytona cloud sandboxes
-│   ├── terminal_tool.py       # Terminal orchestration (sudo, lifecycle, factory)
-│   ├── todo_tool.py           # Planning & task management
-│   ├── process_registry.py    # Background process management
-│   └── ...                    # Other tool files
-├── gateway/              # Messaging platform adapters
-│   ├── platforms/        # Platform-specific adapters (telegram, discord, slack, whatsapp)
-│   └── ...
-├── cron/                 # Scheduler implementation
-├── environments/         # RL training environments (Atropos integration)
-├── skills/               # Bundled skill sources
-├── optional-skills/      # Official optional skills (not activated by default)
-├── cli.py                # Interactive CLI orchestrator (HermesCLI class)
-├── run_agent.py          # AIAgent class (core conversation loop)
-├── model_tools.py        # Tool orchestration (thin layer over tools/registry.py)
-├── toolsets.py           # Tool groupings
-├── toolset_distributions.py  # Probability-based tool selection
+│   ├── skin_engine.py    # Skin/theme engine — CLI visual customization
+│   ├── skills_config.py  # `hermes skills` — enable/disable skills per platform
+│   ├── tools_config.py   # `hermes tools` — enable/disable tools per platform
+│   ├── skills_hub.py     # `/skills` slash command (search, browse, install)
+│   ├── models.py         # Model catalog, provider model lists
+│   ├── model_switch.py   # Shared /model switch pipeline (CLI + gateway)
+│   └── auth.py           # Provider credential resolution
+├── tools/                # Tool implementations (one file per tool)
+│   ├── registry.py       # Central tool registry (schemas, handlers, dispatch)
+│   ├── approval.py       # Dangerous command detection
+│   ├── terminal_tool.py  # Terminal orchestration
+│   ├── process_registry.py # Background process management
+│   ├── file_tools.py     # File read/write/search/patch
+│   ├── web_tools.py      # Web search/extract (Parallel + Firecrawl)
+│   ├── browser_tool.py   # Browserbase browser automation
+│   ├── code_execution_tool.py # execute_code sandbox
+│   ├── delegate_tool.py  # Subagent delegation
+│   ├── mcp_tool.py       # MCP client (~1050 lines)
+│   └── environments/     # Terminal backends (local, docker, ssh, modal, daytona, singularity)
+├── gateway/              # Messaging platform gateway
+│   ├── run.py            # Main loop, slash commands, message dispatch
+│   ├── session.py        # SessionStore — conversation persistence
+│   └── platforms/        # Adapters: telegram, discord, slack, whatsapp, homeassistant, signal, qqbot
+├── ui-tui/               # Ink (React) terminal UI — `hermes --tui`
+│   ├── src/entry.tsx        # TTY gate + render()
+│   ├── src/app.tsx          # Main state machine and UI
+│   ├── src/gatewayClient.ts # Child process + JSON-RPC bridge
+│   ├── src/app/             # Decomposed app logic (event handler, slash handler, stores, hooks)
+│   ├── src/components/      # Ink components (branding, markdown, prompts, pickers, etc.)
+│   ├── src/hooks/           # useCompletion, useInputHistory, useQueue, useVirtualHistory
+│   └── src/lib/             # Pure helpers (history, osc52, text, rpc, messages)
+├── tui_gateway/          # Python JSON-RPC backend for the TUI
+│   ├── entry.py             # stdio entrypoint
+│   ├── server.py            # RPC handlers and session logic
+│   ├── render.py            # Optional rich/ANSI bridge
+│   └── slash_worker.py      # Persistent HermesCLI subprocess for slash commands
+├── acp_adapter/          # ACP server (VS Code / Zed / JetBrains integration)
+├── cron/                 # Scheduler (jobs.py, scheduler.py)
+├── environments/         # RL training environments (Atropos)
+├── tests/                # Pytest suite (~3000 tests)
 └── batch_runner.py       # Parallel batch processing
 ```
 
-**User Configuration** (stored in `~/.hermes/`):
-- `~/.hermes/config.yaml` - Settings (model, terminal, toolsets, etc.)
-- `~/.hermes/.env` - API keys and secrets
-- `~/.hermes/pairing/` - DM pairing data
-- `~/.hermes/hooks/` - Custom event hooks
-- `~/.hermes/image_cache/` - Cached user images
-- `~/.hermes/audio_cache/` - Cached user voice messages
-- `~/.hermes/sticker_cache.json` - Telegram sticker descriptions
+**User config:** `~/.hermes/config.yaml` (settings), `~/.hermes/.env` (API keys)
 
 ## File Dependency Chain
 
@@ -86,600 +90,479 @@ model_tools.py  (imports tools/registry + triggers tool discovery)
 run_agent.py, cli.py, batch_runner.py, environments/
 ```
 
-Each tool file co-locates its schema, handler, and registration. `model_tools.py` is a thin orchestration layer.
-
 ---
 
-## AIAgent Class
-
-The main agent is implemented in `run_agent.py`:
+## AIAgent Class (run_agent.py)
 
 ```python
 class AIAgent:
-    def __init__(
-        self,
-        model: str = "anthropic/claude-sonnet-4",
-        api_key: str = None,
-        base_url: str = "https://openrouter.ai/api/v1",
-        max_iterations: int = 60,        # Max tool-calling loops
+    def __init__(self,
+        model: str = "anthropic/claude-opus-4.6",
+        max_iterations: int = 90,
         enabled_toolsets: list = None,
         disabled_toolsets: list = None,
-        verbose_logging: bool = False,
-        quiet_mode: bool = False,         # Suppress progress output
-        tool_progress_callback: callable = None,  # Called on each tool use
-    ):
-        # Initialize OpenAI client, load tools based on toolsets
-        ...
-    
-    def chat(self, user_message: str, task_id: str = None) -> str:
-        # Main entry point - runs the agent loop
-        ...
+        quiet_mode: bool = False,
+        save_trajectories: bool = False,
+        platform: str = None,           # "cli", "telegram", etc.
+        session_id: str = None,
+        skip_context_files: bool = False,
+        skip_memory: bool = False,
+        # ... plus provider, api_mode, callbacks, routing params
+    ): ...
+
+    def chat(self, message: str) -> str:
+        """Simple interface — returns final response string."""
+
+    def run_conversation(self, user_message: str, system_message: str = None,
+                         conversation_history: list = None, task_id: str = None) -> dict:
+        """Full interface — returns dict with final_response + messages."""
 ```
 
 ### Agent Loop
 
-The core loop in `_run_agent_loop()`:
-
-```
-1. Add user message to conversation
-2. Call LLM with tools
-3. If LLM returns tool calls:
-   - Execute each tool
-   - Add tool results to conversation
-   - Go to step 2
-4. If LLM returns text response:
-   - Return response to user
-```
+The core loop is inside `run_conversation()` — entirely synchronous:
 
 ```python
-while turns < max_turns:
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        tools=tool_schemas,
-    )
-    
+while api_call_count < self.max_iterations and self.iteration_budget.remaining > 0:
+    response = client.chat.completions.create(model=model, messages=messages, tools=tool_schemas)
     if response.tool_calls:
         for tool_call in response.tool_calls:
-            result = await execute_tool(tool_call)
+            result = handle_function_call(tool_call.name, tool_call.args, task_id)
             messages.append(tool_result_message(result))
-        turns += 1
+        api_call_count += 1
     else:
         return response.content
 ```
 
-### Conversation Management
-
-Messages are stored as a list of dicts following OpenAI format:
-
-```python
-messages = [
-    {"role": "system", "content": "You are a helpful assistant..."},
-    {"role": "user", "content": "Search for Python tutorials"},
-    {"role": "assistant", "content": None, "tool_calls": [...]},
-    {"role": "tool", "tool_call_id": "...", "content": "..."},
-    {"role": "assistant", "content": "Here's what I found..."},
-]
-```
-
-### Reasoning Model Support
-
-For models that support chain-of-thought reasoning:
-- Extract `reasoning_content` from API responses
-- Store in `assistant_msg["reasoning"]` for trajectory export
-- Pass back via `reasoning_content` field on subsequent turns
+Messages follow OpenAI format: `{"role": "system/user/assistant/tool", ...}`. Reasoning content is stored in `assistant_msg["reasoning"]`.
 
 ---
 
 ## CLI Architecture (cli.py)
 
-The interactive CLI uses:
-- **Rich** - For the welcome banner and styled panels
-- **prompt_toolkit** - For fixed input area with history, `patch_stdout`, slash command autocomplete, and floating completion menus
-- **KawaiiSpinner** (in run_agent.py) - Animated kawaii faces during API calls; clean `┊` activity feed for tool execution results
+- **Rich** for banner/panels, **prompt_toolkit** for input with autocomplete
+- **KawaiiSpinner** (`agent/display.py`) — animated faces during API calls, `┊` activity feed for tool results
+- `load_cli_config()` in cli.py merges hardcoded defaults + user config YAML
+- **Skin engine** (`hermes_cli/skin_engine.py`) — data-driven CLI theming; initialized from `display.skin` config key at startup; skins customize banner colors, spinner faces/verbs/wings, tool prefix, response box, branding text
+- `process_command()` is a method on `HermesCLI` — dispatches on canonical command name resolved via `resolve_command()` from the central registry
+- Skill slash commands: `agent/skill_commands.py` scans `~/.hermes/skills/`, injects as **user message** (not system prompt) to preserve prompt caching
 
-Key components:
-- `HermesCLI` class - Main CLI controller with commands and conversation loop
-- `SlashCommandCompleter` - Autocomplete dropdown for `/commands` (type `/` to see all)
-- `agent/skill_commands.py` - Scans skills and builds invocation messages (shared with gateway)
-- `load_cli_config()` - Loads config, sets environment variables for terminal
-- `build_welcome_banner()` - Displays ASCII art logo, tools, and skills summary
+### Slash Command Registry (`hermes_cli/commands.py`)
 
-CLI UX notes:
-- Thinking spinner (during LLM API call) shows animated kawaii face + verb (`(⌐■_■) deliberating...`)
-- When LLM returns tool calls, the spinner clears silently (no "got it!" noise)
-- Tool execution results appear as a clean activity feed: `┊ {emoji} {verb} {detail} {duration}`
-- "got it!" only appears when the LLM returns a final text response (`⚕ ready`)
-- The prompt shows `⚕ ❯` when the agent is working, `❯` when idle
-- Pasting 5+ lines auto-saves to `~/.hermes/pastes/` and collapses to a reference
-- Multi-line input via Alt+Enter or Ctrl+J
-- `/commands` - Process user commands like `/help`, `/clear`, `/personality`, etc.
-- `/skill-name` - Invoke installed skills directly (e.g., `/axolotl`, `/gif-search`)
+All slash commands are defined in a central `COMMAND_REGISTRY` list of `CommandDef` objects. Every downstream consumer derives from this registry automatically:
 
-CLI uses `quiet_mode=True` when creating AIAgent to suppress verbose logging.
+- **CLI** — `process_command()` resolves aliases via `resolve_command()`, dispatches on canonical name
+- **Gateway** — `GATEWAY_KNOWN_COMMANDS` frozenset for hook emission, `resolve_command()` for dispatch
+- **Gateway help** — `gateway_help_lines()` generates `/help` output
+- **Telegram** — `telegram_bot_commands()` generates the BotCommand menu
+- **Slack** — `slack_subcommand_map()` generates `/hermes` subcommand routing
+- **Autocomplete** — `COMMANDS` flat dict feeds `SlashCommandCompleter`
+- **CLI help** — `COMMANDS_BY_CATEGORY` dict feeds `show_help()`
 
-### Skill Slash Commands
+### Adding a Slash Command
 
-Every installed skill in `~/.hermes/skills/` is automatically registered as a slash command.
-The skill name (from frontmatter or folder name) becomes the command: `axolotl` → `/axolotl`.
+1. Add a `CommandDef` entry to `COMMAND_REGISTRY` in `hermes_cli/commands.py`:
+```python
+CommandDef("mycommand", "Description of what it does", "Session",
+           aliases=("mc",), args_hint="[arg]"),
+```
+2. Add handler in `HermesCLI.process_command()` in `cli.py`:
+```python
+elif canonical == "mycommand":
+    self._handle_mycommand(cmd_original)
+```
+3. If the command is available in the gateway, add a handler in `gateway/run.py`:
+```python
+if canonical == "mycommand":
+    return await self._handle_mycommand(event)
+```
+4. For persistent settings, use `save_config_value()` in `cli.py`
 
-Implementation (`agent/skill_commands.py`, shared between CLI and gateway):
-1. `scan_skill_commands()` scans all SKILL.md files at startup
-2. `build_skill_invocation_message()` loads the SKILL.md content and builds a user-turn message
-3. The message includes the full skill content, a list of supporting files (not loaded), and the user's instruction
-4. Supporting files can be loaded on demand via the `skill_view` tool
-5. Injected as a **user message** (not system prompt) to preserve prompt caching
+**CommandDef fields:**
+- `name` — canonical name without slash (e.g. `"background"`)
+- `description` — human-readable description
+- `category` — one of `"Session"`, `"Configuration"`, `"Tools & Skills"`, `"Info"`, `"Exit"`
+- `aliases` — tuple of alternative names (e.g. `("bg",)`)
+- `args_hint` — argument placeholder shown in help (e.g. `"<prompt>"`, `"[name]"`)
+- `cli_only` — only available in the interactive CLI
+- `gateway_only` — only available in messaging platforms
+- `gateway_config_gate` — config dotpath (e.g. `"display.tool_progress_command"`); when set on a `cli_only` command, the command becomes available in the gateway if the config value is truthy. `GATEWAY_KNOWN_COMMANDS` always includes config-gated commands so the gateway can dispatch them; help/menus only show them when the gate is open.
 
-### Adding CLI Commands
-
-1. Add to `COMMANDS` dict with description
-2. Add handler in `process_command()` method
-3. For persistent settings, use `save_config_value()` to update config
-
----
-
-## Hermes CLI Commands
-
-The unified `hermes` command provides all functionality:
-
-| Command | Description |
-|---------|-------------|
-| `hermes` | Interactive chat (default) |
-| `hermes chat -q "..."` | Single query mode |
-| `hermes setup` | Configure API keys and settings |
-| `hermes config` | View current configuration |
-| `hermes config edit` | Open config in editor |
-| `hermes config set KEY VAL` | Set a specific value |
-| `hermes config check` | Check for missing config |
-| `hermes config migrate` | Prompt for missing config interactively |
-| `hermes status` | Show configuration status |
-| `hermes doctor` | Diagnose issues |
-| `hermes update` | Update to latest (checks for new config) |
-| `hermes uninstall` | Uninstall (can keep configs for reinstall) |
-| `hermes gateway` | Start gateway (messaging + cron scheduler) |
-| `hermes gateway setup` | Configure messaging platforms interactively |
-| `hermes gateway install` | Install gateway as system service |
-| `hermes cron list` | View scheduled jobs |
-| `hermes cron status` | Check if cron scheduler is running |
-| `hermes version` | Show version info |
-| `hermes pairing list/approve/revoke` | Manage DM pairing codes |
+**Adding an alias** requires only adding it to the `aliases` tuple on the existing `CommandDef`. No other file changes needed — dispatch, help text, Telegram menu, Slack mapping, and autocomplete all update automatically.
 
 ---
 
-## Messaging Gateway
+## TUI Architecture (ui-tui + tui_gateway)
 
-The gateway connects Hermes to Telegram, Discord, Slack, and WhatsApp.
+The TUI is a full replacement for the classic (prompt_toolkit) CLI, activated via `hermes --tui` or `HERMES_TUI=1`.
 
-### Setup
+### Process Model
 
-The interactive setup wizard handles platform configuration:
+```
+hermes --tui
+  └─ Node (Ink)  ──stdio JSON-RPC──  Python (tui_gateway)
+       │                                  └─ AIAgent + tools + sessions
+       └─ renders transcript, composer, prompts, activity
+```
+
+TypeScript owns the screen. Python owns sessions, tools, model calls, and slash command logic.
+
+### Transport
+
+Newline-delimited JSON-RPC over stdio. Requests from Ink, events from Python. See `tui_gateway/server.py` for the full method/event catalog.
+
+### Key Surfaces
+
+| Surface | Ink component | Gateway method |
+|---------|---------------|----------------|
+| Chat streaming | `app.tsx` + `messageLine.tsx` | `prompt.submit` → `message.delta/complete` |
+| Tool activity | `thinking.tsx` | `tool.start/progress/complete` |
+| Approvals | `prompts.tsx` | `approval.respond` ← `approval.request` |
+| Clarify/sudo/secret | `prompts.tsx`, `maskedPrompt.tsx` | `clarify/sudo/secret.respond` |
+| Session picker | `sessionPicker.tsx` | `session.list/resume` |
+| Slash commands | Local handler + fallthrough | `slash.exec` → `_SlashWorker`, `command.dispatch` |
+| Completions | `useCompletion` hook | `complete.slash`, `complete.path` |
+| Theming | `theme.ts` + `branding.tsx` | `gateway.ready` with skin data |
+
+### Slash Command Flow
+
+1. Built-in client commands (`/help`, `/quit`, `/clear`, `/resume`, `/copy`, `/paste`, etc.) handled locally in `app.tsx`
+2. Everything else → `slash.exec` (runs in persistent `_SlashWorker` subprocess) → `command.dispatch` fallback
+
+### Dev Commands
 
 ```bash
-hermes gateway setup      # Arrow-key menu of all platforms, configure tokens/allowlists/home channels
+cd ui-tui
+npm install       # first time
+npm run dev       # watch mode (rebuilds hermes-ink + tsx --watch)
+npm start         # production
+npm run build     # full build (hermes-ink + tsc)
+npm run type-check # typecheck only (tsc --noEmit)
+npm run lint      # eslint
+npm run fmt       # prettier
+npm test          # vitest
 ```
-
-This is the recommended way to configure messaging. It shows which platforms are already set up, walks through each one interactively, and offers to start/restart the gateway service at the end.
-
-Platforms can also be configured manually in `~/.hermes/.env`:
-
-### Configuration (in `~/.hermes/.env`):
-
-```bash
-# Telegram
-TELEGRAM_BOT_TOKEN=123456:ABC-DEF...      # From @BotFather
-TELEGRAM_ALLOWED_USERS=123456789,987654   # Comma-separated user IDs (from @userinfobot)
-
-# Discord  
-DISCORD_BOT_TOKEN=MTIz...                 # From Developer Portal
-DISCORD_ALLOWED_USERS=123456789012345678  # Comma-separated user IDs
-
-# Agent Behavior
-HERMES_MAX_ITERATIONS=60                  # Max tool-calling iterations
-MESSAGING_CWD=/home/myuser                # Terminal working directory for messaging
-
-# Tool progress is configured in config.yaml (display.tool_progress: off|new|all|verbose)
-```
-
-### Working Directory Behavior
-
-- **CLI (`hermes` command)**: Uses current directory (`.` → `os.getcwd()`)
-- **Messaging (Telegram/Discord)**: Uses `MESSAGING_CWD` (default: home directory)
-
-This is intentional: CLI users are in a terminal and expect the agent to work in their current directory, while messaging users need a consistent starting location.
-
-### Security (User Allowlists):
-
-**IMPORTANT**: By default, the gateway denies all users who are not in an allowlist or paired via DM.
-
-The gateway checks `{PLATFORM}_ALLOWED_USERS` environment variables:
-- If set: Only listed user IDs can interact with the bot
-- If unset: All users are denied unless `GATEWAY_ALLOW_ALL_USERS=true` is set
-
-Users can find their IDs:
-- **Telegram**: Message [@userinfobot](https://t.me/userinfobot)
-- **Discord**: Enable Developer Mode, right-click name → Copy ID
-
-### DM Pairing System
-
-Instead of static allowlists, users can pair via one-time codes:
-1. Unknown user DMs the bot → receives pairing code
-2. Owner runs `hermes pairing approve <platform> <code>`
-3. User is permanently authorized
-
-Security: 8-char codes, 1-hour expiry, rate-limited (1/10min/user), max 3 pending per platform, lockout after 5 failed attempts, `chmod 0600` on data files.
-
-Files: `gateway/pairing.py`, `hermes_cli/pairing.py`
-
-### Event Hooks
-
-Hooks fire at lifecycle points. Place hook directories in `~/.hermes/hooks/`:
-
-```
-~/.hermes/hooks/my-hook/
-├── HOOK.yaml    # name, description, events list
-└── handler.py   # async def handle(event_type, context): ...
-```
-
-Events: `gateway:startup`, `session:start`, `session:reset`, `agent:start`, `agent:step`, `agent:end`, `command:*`
-
-The `agent:step` event fires each iteration of the tool-calling loop with tool names and results.
-
-Files: `gateway/hooks.py`
-
-### Tool Progress Notifications
-
-When `tool_progress` is enabled in `config.yaml`, the bot sends status messages as it works:
-- `💻 \`ls -la\`...` (terminal commands show the actual command)
-- `🔍 web_search...`
-- `📄 web_extract...`
-- `🐍 execute_code...` (programmatic tool calling sandbox)
-- `🔀 delegate_task...` (subagent delegation)
-- `❓ clarify...` (user question, CLI-only)
-
-Modes:
-- `new`: Only when switching to a different tool (less spam)
-- `all`: Every single tool call
-
-### Typing Indicator
-
-The gateway keeps the "typing..." indicator active throughout processing, refreshing every 4 seconds. This lets users know the bot is working even during long tool-calling sequences.
-
-### Platform Toolsets:
-
-Each platform has a dedicated toolset in `toolsets.py`:
-- `hermes-telegram`: Full tools including terminal (with safety checks)
-- `hermes-discord`: Full tools including terminal
-- `hermes-whatsapp`: Full tools including terminal
-
----
-
-## Configuration System
-
-Configuration files are stored in `~/.hermes/` for easy user access:
-- `~/.hermes/config.yaml` - All settings (model, terminal, compression, etc.)
-- `~/.hermes/.env` - API keys and secrets
-
-### Adding New Configuration Options
-
-When adding new configuration variables, you MUST follow this process:
-
-#### For config.yaml options:
-
-1. Add to `DEFAULT_CONFIG` in `hermes_cli/config.py`
-2. **CRITICAL**: Bump `_config_version` in `DEFAULT_CONFIG` when adding required fields
-3. This triggers migration prompts for existing users on next `hermes update` or `hermes setup`
-
-Example:
-```python
-DEFAULT_CONFIG = {
-    # ... existing config ...
-    
-    "new_feature": {
-        "enabled": True,
-        "option": "default_value",
-    },
-    
-    # BUMP THIS when adding required fields
-    "_config_version": 2,  # Was 1, now 2
-}
-```
-
-#### For .env variables (API keys/secrets):
-
-1. Add to `REQUIRED_ENV_VARS` or `OPTIONAL_ENV_VARS` in `hermes_cli/config.py`
-2. Include metadata for the migration system:
-
-```python
-OPTIONAL_ENV_VARS = {
-    # ... existing vars ...
-    "NEW_API_KEY": {
-        "description": "What this key is for",
-        "prompt": "Display name in prompts",
-        "url": "https://where-to-get-it.com/",
-        "tools": ["tools_it_enables"],  # What tools need this
-        "password": True,  # Mask input
-    },
-}
-```
-
-#### Update related files:
-
-- `hermes_cli/setup.py` - Add prompts in the setup wizard
-- `cli-config.yaml.example` - Add example with comments
-- Update README.md if user-facing
-
-### Config Version Migration
-
-The system uses `_config_version` to detect outdated configs:
-
-1. `check_for_missing_config()` compares user config to `DEFAULT_CONFIG`
-2. `migrate_config()` interactively prompts for missing values
-3. Called automatically by `hermes update` and optionally by `hermes setup`
-
----
-
-## Environment Variables
-
-API keys are loaded from `~/.hermes/.env`:
-- `OPENROUTER_API_KEY` - Main LLM API access (primary provider)
-- `FIRECRAWL_API_KEY` - Web search/extract tools
-- `FIRECRAWL_API_URL` - Self-hosted Firecrawl endpoint (optional)
-- `BROWSERBASE_API_KEY` / `BROWSERBASE_PROJECT_ID` - Browser automation
-- `FAL_KEY` - Image generation (FLUX model)
-- `NOUS_API_KEY` - Vision and Mixture-of-Agents tools
-
-Terminal tool configuration (in `~/.hermes/config.yaml`):
-- `terminal.backend` - Backend: local, docker, singularity, modal, daytona, or ssh
-- `terminal.cwd` - Working directory ("." = host CWD for local only; for remote backends set an absolute path inside the target, or omit to use the backend's default)
-- `terminal.docker_image` - Image for Docker backend
-- `terminal.singularity_image` - Image for Singularity backend
-- `terminal.modal_image` - Image for Modal backend
-- `terminal.daytona_image` - Image for Daytona backend
-- `DAYTONA_API_KEY` - API key for Daytona backend (in .env)
-- SSH: `TERMINAL_SSH_HOST`, `TERMINAL_SSH_USER`, `TERMINAL_SSH_KEY` in .env
-
-Agent behavior (in `~/.hermes/.env`):
-- `HERMES_MAX_ITERATIONS` - Max tool-calling iterations (default: 60)
-- `MESSAGING_CWD` - Working directory for messaging platforms (default: ~)
-- `display.tool_progress` in config.yaml - Tool progress: `off`, `new`, `all`, `verbose`
-- `OPENAI_API_KEY` - Voice transcription (Whisper STT)
-- `SLACK_BOT_TOKEN` / `SLACK_APP_TOKEN` - Slack integration (Socket Mode)
-- `SLACK_ALLOWED_USERS` - Comma-separated Slack user IDs
-- `HERMES_HUMAN_DELAY_MODE` - Response pacing: off/natural/custom
-- `HERMES_HUMAN_DELAY_MIN_MS` / `HERMES_HUMAN_DELAY_MAX_MS` - Custom delay range
-
-### Dangerous Command Approval
-
-The terminal tool includes safety checks for potentially destructive commands (e.g., `rm -rf`, `DROP TABLE`, `chmod 777`, etc.):
-
-**Behavior by Backend:**
-- **Docker/Singularity/Modal**: Commands run unrestricted (isolated containers)
-- **Local/SSH**: Dangerous commands trigger approval flow
-
-**Approval Flow (CLI):**
-```
-⚠️  Potentially dangerous command detected: recursive delete
-    rm -rf /tmp/test
-
-    [o]nce  |  [s]ession  |  [a]lways  |  [d]eny
-    Choice [o/s/a/D]: 
-```
-
-**Approval Flow (Messaging):**
-- Command is blocked with explanation
-- Agent explains the command was blocked for safety
-- User must add the pattern to their allowlist via `hermes config edit` or run the command directly on their machine
-
-**Configuration:**
-- `command_allowlist` in `~/.hermes/config.yaml` stores permanently allowed patterns
-- Add patterns via "always" approval or edit directly
-
-**Sudo Handling (Messaging):**
-- If sudo fails over messaging, output includes tip to add `SUDO_PASSWORD` to `~/.hermes/.env`
-
----
-
-## Background Process Management
-
-The `process` tool works alongside `terminal` for managing long-running background processes:
-
-**Starting a background process:**
-```python
-terminal(command="pytest -v tests/", background=true)
-# Returns: {"session_id": "proc_abc123", "pid": 12345, ...}
-```
-
-**Managing it with the process tool:**
-- `process(action="list")` -- show all running/recent processes
-- `process(action="poll", session_id="proc_abc123")` -- check status + new output
-- `process(action="log", session_id="proc_abc123")` -- full output with pagination
-- `process(action="wait", session_id="proc_abc123", timeout=600)` -- block until done
-- `process(action="kill", session_id="proc_abc123")` -- terminate
-- `process(action="write", session_id="proc_abc123", data="y")` -- send stdin
-- `process(action="submit", session_id="proc_abc123", data="yes")` -- send + Enter
-
-**Key behaviors:**
-- Background processes execute through the configured terminal backend (local/Docker/Modal/Daytona/SSH/Singularity) -- never directly on the host unless `TERMINAL_ENV=local`
-- The `wait` action blocks the tool call until the process finishes, times out, or is interrupted by a new user message
-- PTY mode (`pty=true` on terminal) enables interactive CLI tools (Codex, Claude Code)
-- In RL training, background processes are auto-killed when the episode ends (`tool_context.cleanup()`)
-- In the gateway, sessions with active background processes are exempt from idle reset
-- The process registry checkpoints to `~/.hermes/processes.json` for crash recovery
-
-Files: `tools/process_registry.py` (registry + handler), `tools/terminal_tool.py` (spawn integration)
 
 ---
 
 ## Adding New Tools
 
-Adding a tool requires changes in **2 files** (the tool file and `toolsets.py`):
+Requires changes in **2 files**:
 
-1. **Create `tools/your_tool.py`** with handler, schema, check function, and registry call:
-
+**1. Create `tools/your_tool.py`:**
 ```python
-# tools/example_tool.py
-import json
-import os
+import json, os
 from tools.registry import registry
 
-def check_example_requirements() -> bool:
-    """Check if required API keys/dependencies are available."""
+def check_requirements() -> bool:
     return bool(os.getenv("EXAMPLE_API_KEY"))
 
 def example_tool(param: str, task_id: str = None) -> str:
-    """Execute the tool and return JSON string result."""
-    try:
-        result = {"success": True, "data": "..."}
-        return json.dumps(result, ensure_ascii=False)
-    except Exception as e:
-        return json.dumps({"error": str(e)}, ensure_ascii=False)
-
-EXAMPLE_SCHEMA = {
-    "name": "example_tool",
-    "description": "Does something useful.",
-    "parameters": {
-        "type": "object",
-        "properties": {
-            "param": {"type": "string", "description": "The parameter"}
-        },
-        "required": ["param"]
-    }
-}
+    return json.dumps({"success": True, "data": "..."})
 
 registry.register(
     name="example_tool",
     toolset="example",
-    schema=EXAMPLE_SCHEMA,
-    handler=lambda args, **kw: example_tool(
-        param=args.get("param", ""), task_id=kw.get("task_id")),
-    check_fn=check_example_requirements,
+    schema={"name": "example_tool", "description": "...", "parameters": {...}},
+    handler=lambda args, **kw: example_tool(param=args.get("param", ""), task_id=kw.get("task_id")),
+    check_fn=check_requirements,
     requires_env=["EXAMPLE_API_KEY"],
 )
 ```
 
-2. **Add to `toolsets.py`**: Add `"example_tool"` to `_HERMES_CORE_TOOLS` if it should be in all platform toolsets, or create a new toolset entry.
+**2. Add to `toolsets.py`** — either `_HERMES_CORE_TOOLS` (all platforms) or a new toolset.
 
-3. **Add discovery import** in `model_tools.py`'s `_discover_tools()` list: `"tools.example_tool"`.
+Auto-discovery: any `tools/*.py` file with a top-level `registry.register()` call is imported automatically — no manual import list to maintain.
 
-That's it. The registry handles schema collection, dispatch, availability checking, and error wrapping automatically. No edits to `TOOLSET_REQUIREMENTS`, `handle_function_call()`, `get_all_tool_names()`, or any other data structure.
+The registry handles schema collection, dispatch, availability checking, and error wrapping. All handlers MUST return a JSON string.
 
-**Optional:** Add to `OPTIONAL_ENV_VARS` in `hermes_cli/config.py` for the setup wizard, and to `toolset_distributions.py` for batch processing.
+**Path references in tool schemas**: If the schema description mentions file paths (e.g. default output directories), use `display_hermes_home()` to make them profile-aware. The schema is generated at import time, which is after `_apply_profile_override()` sets `HERMES_HOME`.
 
-**Special case: tools that need agent-level state** (like `todo`, `memory`):
-These are intercepted by `run_agent.py`'s tool dispatch loop *before* `handle_function_call()`. The registry still holds their schemas, but dispatch returns a stub error as a safety fallback. See `todo_tool.py` for the pattern.
+**State files**: If a tool stores persistent state (caches, logs, checkpoints), use `get_hermes_home()` for the base directory — never `Path.home() / ".hermes"`. This ensures each profile gets its own state.
 
-All tool handlers MUST return a JSON string. The registry's `dispatch()` wraps all exceptions in `{"error": "..."}` automatically.
-
-### Dynamic Tool Availability
-
-Tools declare their requirements at registration time via `check_fn` and `requires_env`. The registry checks `check_fn()` when building tool definitions -- tools whose check fails are silently excluded.
-
-### Stateful Tools
-
-Tools that maintain state (terminal, browser) require:
-- `task_id` parameter for session isolation between concurrent tasks
-- `cleanup_*()` function to release resources
-- Cleanup is called automatically in run_agent.py after conversation completes
+**Agent-level tools** (todo, memory): intercepted by `run_agent.py` before `handle_function_call()`. See `todo_tool.py` for the pattern.
 
 ---
 
-## Trajectory Format
+## Adding Configuration
 
-Conversations are saved in ShareGPT format for training:
-```json
-{"from": "system", "value": "System prompt with <tools>...</tools>"}
-{"from": "human", "value": "User message"}
-{"from": "gpt", "value": "<think>reasoning</think>\n<tool_call>{...}</tool_call>"}
-{"from": "tool", "value": "<tool_response>{...}</tool_response>"}
-{"from": "gpt", "value": "Final response"}
+### config.yaml options:
+1. Add to `DEFAULT_CONFIG` in `hermes_cli/config.py`
+2. Bump `_config_version` (currently 5) to trigger migration for existing users
+
+### .env variables:
+1. Add to `OPTIONAL_ENV_VARS` in `hermes_cli/config.py` with metadata:
+```python
+"NEW_API_KEY": {
+    "description": "What it's for",
+    "prompt": "Display name",
+    "url": "https://...",
+    "password": True,
+    "category": "tool",  # provider, tool, messaging, setting
+},
 ```
 
-Tool calls use `<tool_call>` XML tags, responses use `<tool_response>` tags, reasoning uses `<think>` tags.
+### Config loaders (two separate systems):
 
-### Trajectory Export
+| Loader | Used by | Location |
+|--------|---------|----------|
+| `load_cli_config()` | CLI mode | `cli.py` |
+| `load_config()` | `hermes tools`, `hermes setup` | `hermes_cli/config.py` |
+| Direct YAML load | Gateway | `gateway/run.py` |
+
+---
+
+## Skin/Theme System
+
+The skin engine (`hermes_cli/skin_engine.py`) provides data-driven CLI visual customization. Skins are **pure data** — no code changes needed to add a new skin.
+
+### Architecture
+
+```
+hermes_cli/skin_engine.py    # SkinConfig dataclass, built-in skins, YAML loader
+~/.hermes/skins/*.yaml       # User-installed custom skins (drop-in)
+```
+
+- `init_skin_from_config()` — called at CLI startup, reads `display.skin` from config
+- `get_active_skin()` — returns cached `SkinConfig` for the current skin
+- `set_active_skin(name)` — switches skin at runtime (used by `/skin` command)
+- `load_skin(name)` — loads from user skins first, then built-ins, then falls back to default
+- Missing skin values inherit from the `default` skin automatically
+
+### What skins customize
+
+| Element | Skin Key | Used By |
+|---------|----------|---------|
+| Banner panel border | `colors.banner_border` | `banner.py` |
+| Banner panel title | `colors.banner_title` | `banner.py` |
+| Banner section headers | `colors.banner_accent` | `banner.py` |
+| Banner dim text | `colors.banner_dim` | `banner.py` |
+| Banner body text | `colors.banner_text` | `banner.py` |
+| Response box border | `colors.response_border` | `cli.py` |
+| Spinner faces (waiting) | `spinner.waiting_faces` | `display.py` |
+| Spinner faces (thinking) | `spinner.thinking_faces` | `display.py` |
+| Spinner verbs | `spinner.thinking_verbs` | `display.py` |
+| Spinner wings (optional) | `spinner.wings` | `display.py` |
+| Tool output prefix | `tool_prefix` | `display.py` |
+| Per-tool emojis | `tool_emojis` | `display.py` → `get_tool_emoji()` |
+| Agent name | `branding.agent_name` | `banner.py`, `cli.py` |
+| Welcome message | `branding.welcome` | `cli.py` |
+| Response box label | `branding.response_label` | `cli.py` |
+| Prompt symbol | `branding.prompt_symbol` | `cli.py` |
+
+### Built-in skins
+
+- `default` — Classic Hermes gold/kawaii (the current look)
+- `ares` — Crimson/bronze war-god theme with custom spinner wings
+- `mono` — Clean grayscale monochrome
+- `slate` — Cool blue developer-focused theme
+
+### Adding a built-in skin
+
+Add to `_BUILTIN_SKINS` dict in `hermes_cli/skin_engine.py`:
 
 ```python
-agent = AIAgent(save_trajectories=True)
-agent.chat("Do something")
-# Saves to trajectories/*.jsonl in ShareGPT format
+"mytheme": {
+    "name": "mytheme",
+    "description": "Short description",
+    "colors": { ... },
+    "spinner": { ... },
+    "branding": { ... },
+    "tool_prefix": "┊",
+},
+```
+
+### User skins (YAML)
+
+Users create `~/.hermes/skins/<name>.yaml`:
+
+```yaml
+name: cyberpunk
+description: Neon-soaked terminal theme
+
+colors:
+  banner_border: "#FF00FF"
+  banner_title: "#00FFFF"
+  banner_accent: "#FF1493"
+
+spinner:
+  thinking_verbs: ["jacking in", "decrypting", "uploading"]
+  wings:
+    - ["⟨⚡", "⚡⟩"]
+
+branding:
+  agent_name: "Cyber Agent"
+  response_label: " ⚡ Cyber "
+
+tool_prefix: "▏"
+```
+
+Activate with `/skin cyberpunk` or `display.skin: cyberpunk` in config.yaml.
+
+---
+
+## Important Policies
+### Prompt Caching Must Not Break
+
+Hermes-Agent ensures caching remains valid throughout a conversation. **Do NOT implement changes that would:**
+- Alter past context mid-conversation
+- Change toolsets mid-conversation
+- Reload memories or rebuild system prompts mid-conversation
+
+Cache-breaking forces dramatically higher costs. The ONLY time we alter context is during context compression.
+
+### Working Directory Behavior
+- **CLI**: Uses current directory (`.` → `os.getcwd()`)
+- **Messaging**: Uses `MESSAGING_CWD` env var (default: home directory)
+
+### Background Process Notifications (Gateway)
+
+When `terminal(background=true, notify_on_complete=true)` is used, the gateway runs a watcher that
+detects process completion and triggers a new agent turn. Control verbosity of background process
+messages with `display.background_process_notifications`
+in config.yaml (or `HERMES_BACKGROUND_NOTIFICATIONS` env var):
+
+- `all` — running-output updates + final message (default)
+- `result` — only the final completion message
+- `error` — only the final message when exit code != 0
+- `off` — no watcher messages at all
+
+---
+
+## Profiles: Multi-Instance Support
+
+Hermes supports **profiles** — multiple fully isolated instances, each with its own
+`HERMES_HOME` directory (config, API keys, memory, sessions, skills, gateway, etc.).
+
+The core mechanism: `_apply_profile_override()` in `hermes_cli/main.py` sets
+`HERMES_HOME` before any module imports. All 119+ references to `get_hermes_home()`
+automatically scope to the active profile.
+
+### Rules for profile-safe code
+
+1. **Use `get_hermes_home()` for all HERMES_HOME paths.** Import from `hermes_constants`.
+   NEVER hardcode `~/.hermes` or `Path.home() / ".hermes"` in code that reads/writes state.
+   ```python
+   # GOOD
+   from hermes_constants import get_hermes_home
+   config_path = get_hermes_home() / "config.yaml"
+
+   # BAD — breaks profiles
+   config_path = Path.home() / ".hermes" / "config.yaml"
+   ```
+
+2. **Use `display_hermes_home()` for user-facing messages.** Import from `hermes_constants`.
+   This returns `~/.hermes` for default or `~/.hermes/profiles/<name>` for profiles.
+   ```python
+   # GOOD
+   from hermes_constants import display_hermes_home
+   print(f"Config saved to {display_hermes_home()}/config.yaml")
+
+   # BAD — shows wrong path for profiles
+   print("Config saved to ~/.hermes/config.yaml")
+   ```
+
+3. **Module-level constants are fine** — they cache `get_hermes_home()` at import time,
+   which is AFTER `_apply_profile_override()` sets the env var. Just use `get_hermes_home()`,
+   not `Path.home() / ".hermes"`.
+
+4. **Tests that mock `Path.home()` must also set `HERMES_HOME`** — since code now uses
+   `get_hermes_home()` (reads env var), not `Path.home() / ".hermes"`:
+   ```python
+   with patch.object(Path, "home", return_value=tmp_path), \
+        patch.dict(os.environ, {"HERMES_HOME": str(tmp_path / ".hermes")}):
+       ...
+   ```
+
+5. **Gateway platform adapters should use token locks** — if the adapter connects with
+   a unique credential (bot token, API key), call `acquire_scoped_lock()` from
+   `gateway.status` in the `connect()`/`start()` method and `release_scoped_lock()` in
+   `disconnect()`/`stop()`. This prevents two profiles from using the same credential.
+   See `gateway/platforms/telegram.py` for the canonical pattern.
+
+6. **Profile operations are HOME-anchored, not HERMES_HOME-anchored** — `_get_profiles_root()`
+   returns `Path.home() / ".hermes" / "profiles"`, NOT `get_hermes_home() / "profiles"`.
+   This is intentional — it lets `hermes -p coder profile list` see all profiles regardless
+   of which one is active.
+
+## Known Pitfalls
+
+### DO NOT hardcode `~/.hermes` paths
+Use `get_hermes_home()` from `hermes_constants` for code paths. Use `display_hermes_home()`
+for user-facing print/log messages. Hardcoding `~/.hermes` breaks profiles — each profile
+has its own `HERMES_HOME` directory. This was the source of 5 bugs fixed in PR #3575.
+
+### DO NOT use `simple_term_menu` for interactive menus
+Rendering bugs in tmux/iTerm2 — ghosting on scroll. Use `curses` (stdlib) instead. See `hermes_cli/tools_config.py` for the pattern.
+
+### DO NOT use `\033[K` (ANSI erase-to-EOL) in spinner/display code
+Leaks as literal `?[K` text under `prompt_toolkit`'s `patch_stdout`. Use space-padding: `f"\r{line}{' ' * pad}"`.
+
+### `_last_resolved_tool_names` is a process-global in `model_tools.py`
+`_run_single_child()` in `delegate_tool.py` saves and restores this global around subagent execution. If you add new code that reads this global, be aware it may be temporarily stale during child agent runs.
+
+### DO NOT hardcode cross-tool references in schema descriptions
+Tool schema descriptions must not mention tools from other toolsets by name (e.g., `browser_navigate` saying "prefer web_search"). Those tools may be unavailable (missing API keys, disabled toolset), causing the model to hallucinate calls to non-existent tools. If a cross-reference is needed, add it dynamically in `get_tool_definitions()` in `model_tools.py` — see the `browser_navigate` / `execute_code` post-processing blocks for the pattern.
+
+### Tests must not write to `~/.hermes/`
+The `_isolate_hermes_home` autouse fixture in `tests/conftest.py` redirects `HERMES_HOME` to a temp dir. Never hardcode `~/.hermes/` paths in tests.
+
+**Profile tests**: When testing profile features, also mock `Path.home()` so that
+`_get_profiles_root()` and `_get_default_hermes_home()` resolve within the temp dir.
+Use the pattern from `tests/hermes_cli/test_profiles.py`:
+```python
+@pytest.fixture
+def profile_env(tmp_path, monkeypatch):
+    home = tmp_path / ".hermes"
+    home.mkdir()
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HERMES_HOME", str(home))
+    return home
 ```
 
 ---
 
-## Batch Processing (batch_runner.py)
+## Testing
 
-For processing multiple prompts:
-- Parallel execution with multiprocessing
-- Content-based resume for fault tolerance (matches on prompt text, not indices)
-- Toolset distributions control probabilistic tool availability per prompt
-- Output: `data/<run_name>/trajectories.jsonl` (combined) + individual batch files
+**ALWAYS use `scripts/run_tests.sh`** — do not call `pytest` directly. The script enforces
+hermetic environment parity with CI (unset credential vars, TZ=UTC, LANG=C.UTF-8,
+4 xdist workers matching GHA ubuntu-latest). Direct `pytest` on a 16+ core
+developer machine with API keys set diverges from CI in ways that have caused
+multiple "works locally, fails in CI" incidents (and the reverse).
 
 ```bash
-python batch_runner.py \
-    --dataset_file=prompts.jsonl \
-    --batch_size=20 \
-    --num_workers=4 \
-    --run_name=my_run
+scripts/run_tests.sh                                  # full suite, CI-parity
+scripts/run_tests.sh tests/gateway/                   # one directory
+scripts/run_tests.sh tests/agent/test_foo.py::test_x  # one test
+scripts/run_tests.sh -v --tb=long                     # pass-through pytest flags
 ```
 
----
+### Why the wrapper (and why the old "just call pytest" doesn't work)
 
-## Skills System
+Five real sources of local-vs-CI drift the script closes:
 
-Skills are on-demand knowledge documents the agent can load. Compatible with the [agentskills.io](https://agentskills.io/specification) open standard.
+| | Without wrapper | With wrapper |
+|---|---|---|
+| Provider API keys | Whatever is in your env (auto-detects pool) | All `*_API_KEY`/`*_TOKEN`/etc. unset |
+| HOME / `~/.hermes/` | Your real config+auth.json | Temp dir per test |
+| Timezone | Local TZ (PDT etc.) | UTC |
+| Locale | Whatever is set | C.UTF-8 |
+| xdist workers | `-n auto` = all cores (20+ on a workstation) | `-n 4` matching CI |
 
-```
-skills/
-├── mlops/                    # Category folder
-│   ├── axolotl/             # Skill folder
-│   │   ├── SKILL.md         # Main instructions (required)
-│   │   ├── references/      # Additional docs, API specs
-│   │   ├── templates/       # Output formats, configs
-│   │   └── assets/          # Supplementary files (agentskills.io)
-│   └── vllm/
-│       └── SKILL.md
-├── .hub/                    # Skills Hub state (gitignored)
-│   ├── lock.json            # Installed skill provenance
-│   ├── quarantine/          # Pending security review
-│   ├── audit.log            # Security scan history
-│   ├── taps.json            # Custom source repos
-│   └── index-cache/         # Cached remote indexes
-```
+`tests/conftest.py` also enforces points 1-4 as an autouse fixture so ANY pytest
+invocation (including IDE integrations) gets hermetic behavior — but the wrapper
+is belt-and-suspenders.
 
-**Progressive disclosure** (token-efficient):
-1. `skills_categories()` - List category names (~50 tokens)
-2. `skills_list(category)` - Name + description per skill (~3k tokens)
-3. `skill_view(name)` - Full content + tags + linked files
+### Running without the wrapper (only if you must)
 
-SKILL.md files use YAML frontmatter (agentskills.io format):
-```yaml
----
-name: skill-name
-description: Brief description for listing
-version: 1.0.0
-metadata:
-  hermes:
-    tags: [tag1, tag2]
-    related_skills: [other-skill]
----
-# Skill Content...
+If you can't use the wrapper (e.g. on Windows or inside an IDE that shells
+pytest directly), at minimum activate the venv and pass `-n 4`:
+
+```bash
+source venv/bin/activate
+python -m pytest tests/ -q -n 4
 ```
 
-**Skills Hub** — user-driven skill search/install from online registries and official optional skills. Sources: official optional skills (shipped with repo, labeled "official"), GitHub (openai/skills, anthropics/skills, custom taps), ClawHub, Claude marketplace, LobeHub. Not exposed as an agent tool — the model cannot search for or install skills. Users manage skills via `hermes skills browse/search/install` CLI commands or the `/skills` slash command in chat.
+Worker count above 4 will surface test-ordering flakes that CI never sees.
 
-Key files:
-- `tools/skills_tool.py` — Agent-facing skill list/view (progressive disclosure)
-- `tools/skills_guard.py` — Security scanner (regex + LLM audit, trust-aware install policy)
-- `tools/skills_hub.py` — Source adapters (OptionalSkillSource, GitHub, ClawHub, Claude marketplace, LobeHub), lock file, auth
-- `hermes_cli/skills_hub.py` — CLI subcommands + `/skills` slash command handler
-
----
-
-## Testing Changes
-
-After making changes:
-
-1. Run `hermes doctor` to check setup
-2. Run `hermes config check` to verify config
-3. Test with `hermes chat -q "test message"`
-4. For new config options, test fresh install: `rm -rf ~/.hermes && hermes setup`
+Always run the full suite before pushing changes.

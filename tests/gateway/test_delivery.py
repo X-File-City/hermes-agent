@@ -1,7 +1,7 @@
 """Tests for the delivery routing module."""
 
-from gateway.config import Platform, GatewayConfig, PlatformConfig, HomeChannel
-from gateway.delivery import DeliveryTarget, parse_deliver_spec
+from gateway.config import Platform
+from gateway.delivery import DeliveryTarget
 from gateway.session import SessionSource
 
 
@@ -24,10 +24,11 @@ class TestParseTargetPlatformChat:
         assert target.chat_id is None
 
     def test_origin_with_source(self):
-        origin = SessionSource(platform=Platform.TELEGRAM, chat_id="789")
+        origin = SessionSource(platform=Platform.TELEGRAM, chat_id="789", thread_id="42")
         target = DeliveryTarget.parse("origin", origin=origin)
         assert target.platform == Platform.TELEGRAM
         assert target.chat_id == "789"
+        assert target.thread_id == "42"
         assert target.is_origin is True
 
     def test_origin_without_source(self):
@@ -40,31 +41,9 @@ class TestParseTargetPlatformChat:
         assert target.platform == Platform.LOCAL
 
 
-class TestParseDeliverSpec:
-    def test_none_returns_default(self):
-        result = parse_deliver_spec(None)
-        assert result == "origin"
-
-    def test_empty_string_returns_default(self):
-        result = parse_deliver_spec("")
-        assert result == "origin"
-
-    def test_custom_default(self):
-        result = parse_deliver_spec(None, default="local")
-        assert result == "local"
-
-    def test_passthrough_string(self):
-        result = parse_deliver_spec("telegram")
-        assert result == "telegram"
-
-    def test_passthrough_list(self):
-        result = parse_deliver_spec(["local", "telegram"])
-        assert result == ["local", "telegram"]
-
-
 class TestTargetToStringRoundtrip:
     def test_origin_roundtrip(self):
-        origin = SessionSource(platform=Platform.TELEGRAM, chat_id="111")
+        origin = SessionSource(platform=Platform.TELEGRAM, chat_id="111", thread_id="42")
         target = DeliveryTarget.parse("origin", origin=origin)
         assert target.to_string() == "origin"
 
@@ -84,3 +63,6 @@ class TestTargetToStringRoundtrip:
         reparsed = DeliveryTarget.parse(s)
         assert reparsed.platform == Platform.TELEGRAM
         assert reparsed.chat_id == "999"
+
+
+
