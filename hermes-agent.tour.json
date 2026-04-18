@@ -35,7 +35,7 @@
     {
       "id": "agent-internals",
       "title": "Agent Internals",
-      "description": "These modules are extracted from the core loop to keep concerns separate. The prompt pipeline assembles the system prompt from identity, skills index, and context files. Other modules handle auto-compression when context gets too long, model context-length tracking and token estimation, prompt caching, spinner and tool-preview formatting, and saving conversation trajectories for training.",
+      "description": "These modules are extracted from the core loop to keep concerns separate. The prompt pipeline assembles the system prompt from identity, skills, and context. Other modules handle auto-compression, context-length tracking, prompt caching, and saving conversation trajectories for training.",
       "focusDirectory": "agent",
       "highlightLayers": [
         {
@@ -78,7 +78,7 @@
     {
       "id": "tools-system",
       "title": "Tools & Environments",
-      "description": "Hermes ships with over fifty tool implementations. The central registry defines schemas, handlers, and dispatch. A dedicated approval module handles dangerous-command detection with per-session approval. Terminal execution is orchestrated across seven backends — local, Docker, SSH, Daytona, Singularity, Modal, and Modal-managed — each with its own adapter. Top-level configuration controls which tools are available in each session.",
+      "description": "Hermes ships with over fifty tool implementations. A central registry defines each tool, and a dedicated approval system handles dangerous-command detection with per-session confirmation. Terminal execution runs across seven backends — local, Docker, SSH, Daytona, Singularity, Modal, and Modal-managed — each with its own adapter.",
       "focusDirectory": "tools",
       "highlightLayers": [
         {
