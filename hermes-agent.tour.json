@@ -14,7 +14,7 @@
       "id": "core-agent-loop",
       "title": "The Core Agent Loop",
       "description": "The highlighted files form the heart of the system. The main agent drives the conversation loop: receiving user input, building prompts, calling the LLM, parsing tool calls, executing tools, and feeding results back. Supporting modules provide tool orchestration, persistent session state, and shared constants.",
-      "focusDirectory": "agent",
+      "focusDirectory": "",
       "highlightLayers": [
         {
           "id": "core-files",
